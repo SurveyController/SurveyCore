@@ -1,25 +1,25 @@
-# Repository Access Notes
+# 仓库访问记录
 
-Date: 2026-04-29
+日期：2026-04-29
 
-## GitHub CLI Preference
+## GitHub CLI 偏好
 
-Project GitHub operations should prefer GitHub CLI (`gh`). This preference is persisted in `CONTRIBUTING.md` and `docs/development.md`.
+本项目的 GitHub 相关操作应优先使用 GitHub CLI（`gh`）。这一偏好已写入 `CONTRIBUTING.md` 和 `docs/development.md`。
 
-## Verified Account and Repository
+## 已验证账号与仓库
 
-Current GitHub CLI account:
+当前 GitHub CLI 账号：
 
 - `LING71671`
 
-Target repository:
+目标仓库：
 
 - `https://github.com/hungryM0/SurveyController-go`
-- Private repository.
-- Default branch configured as `main`.
-- Repository was empty before `v0.1` initialization.
+- 私有仓库。
+- 默认分支配置为 `main`。
+- `v0.1` 初始化前仓库为空。
 
-Verified permissions from `gh api repos/hungryM0/SurveyController-go`:
+通过 `gh api repos/hungryM0/SurveyController-go` 验证到的权限：
 
 - `pull`: true
 - `push`: true
@@ -27,32 +27,32 @@ Verified permissions from `gh api repos/hungryM0/SurveyController-go`:
 - `maintain`: false
 - `admin`: false
 
-`gh repo view hungryM0/SurveyController-go` returned a GraphQL 401 during discovery, but REST calls through `gh api` succeeded. Prefer `gh api` when repository metadata checks hit that GraphQL issue.
+探索时 `gh repo view hungryM0/SurveyController-go` 返回过 GraphQL 401，但通过 `gh api` 发起的 REST 调用成功。后续如果仓库元数据检查再次遇到该 GraphQL 问题，优先使用 `gh api`。
 
-## Local State Before Initialization
+## 初始化前本地状态
 
-Path:
+路径：
 
 - `B:\SurveyController\SurveyController-go`
 
-Initial local state:
+初始本地状态：
 
-- Directory existed.
-- Directory was empty.
-- Directory was not a git repository.
+- 目录已存在。
+- 目录为空。
+- 目录不是 git 仓库。
 
-The remote repository was also empty, so `v0.1` is allowed to make one bootstrap commit directly to `main`. After that, normal development must use issue -> branch -> PR.
+远程仓库同样为空，因此 `v0.1` 允许一次直接提交到 `main` 的引导提交。之后正常开发必须遵循：议题 -> 分支 -> 拉取请求。
 
-## Tool Versions
+## 工具版本
 
-Observed local versions:
+已观察到的本地版本：
 
 - Go: `go1.26.0 windows/amd64`
 - Git: `2.51.0.windows.1`
 - GitHub CLI: `2.89.0`
-- `golangci-lint`: not installed locally during discovery.
+- `golangci-lint`：探索时本地未安装。
 
-Verified GitHub Actions tags:
+已验证的 GitHub Actions 标签：
 
 - `actions/checkout@v5`
 - `actions/setup-go@v6`

@@ -1,27 +1,27 @@
-## Summary
+## 摘要
 
 -
 
-## Linked Issue
+## 关联议题
 
-Closes #
+关联 #
 
-## Tests
-
--
-
-## Performance Impact
+## 测试
 
 -
 
-## Risk and Rollback
+## 性能影响
 
 -
 
-## Checklist
+## 风险与回滚
 
-- [ ] I linked an issue, except for the approved `v0.1` bootstrap commit.
-- [ ] I ran `gofmt`.
-- [ ] I ran `go test ./...`.
-- [ ] I ran `go vet ./...`.
-- [ ] I updated docs or tests when behavior changed.
+-
+
+## 检查清单
+
+- [ ] 已关联议题；已批准的 `v0.1` 引导提交除外。
+- [ ] 已运行 `gofmt`。
+- [ ] 已运行 `go test ./...`。
+- [ ] 已运行 `go vet ./...`。
+- [ ] 行为变化时，已同步更新文档或测试。

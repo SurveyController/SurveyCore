@@ -1,53 +1,53 @@
-name: Bug Report
-description: Report a reproducible problem.
-title: "[Bug]: "
+name: 报错反馈
+description: 报告一个可以复现的问题。
+title: "[缺陷]: "
 body:
   - type: markdown
     attributes:
       value: |
-        Please confirm that the target survey or test fixture is authorized before reporting runtime behavior.
+        报告运行时行为前，请确认目标问卷或测试夹具已获得授权。
   - type: textarea
     id: summary
     attributes:
-      label: Summary
-      description: What happened?
+      label: 问题概述
+      description: 发生了什么？
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction Steps
-      description: List the exact steps, command, config, and fixture.
+      label: 复现步骤
+      description: 请列出完整步骤、命令、配置和测试夹具。
       placeholder: |
-        1. Run ...
-        2. See ...
+        1. 运行 ...
+        2. 看到 ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected Behavior
+      label: 预期行为
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
-      label: Environment
+      label: 运行环境
       placeholder: |
-        OS:
-        Go version:
-        surveyctl version:
+        操作系统：
+        Go 版本：
+        surveyctl 版本：
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Logs
+      label: 日志
       render: text
   - type: checkboxes
     id: authorization
     attributes:
-      label: Authorization
+      label: 授权确认
       options:
-        - label: I confirm this report does not require unauthorized access or abuse of a third-party survey.
+        - label: 我确认该报告不涉及未经授权访问或滥用第三方问卷。
           required: true

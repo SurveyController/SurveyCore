@@ -1,57 +1,57 @@
-# Architecture
+# 架构说明
 
-## Goal
+## 目标
 
-SurveyController-go will be a lightweight CLI-first rewrite of the original Python SurveyController. The `v1.0` target is official support for WJX, Tencent Questionnaire, and Credamo.
+SurveyController-go 是原 Python 版 SurveyController 的轻量化、命令行优先 Go 重写。`v1.0` 目标是正式支持问卷星、腾讯问卷和 Credamo 见数平台。
 
-`v0.1` only defines the initial boundaries.
+`v0.1` 只定义初始边界，不实现真实问卷运行能力。
 
-## Layers
+## 分层
 
-- `cmd/surveyctl`: command-line entrypoint.
-- `internal/app`: future use-case orchestration.
-- `internal/config`: versioned runtime configuration.
-- `internal/engine`: runtime engine selection and execution-mode primitives.
-- `internal/provider`: platform contracts and normalized survey definitions.
-- `internal/runner`: worker orchestration and run-plan validation.
-- `internal/browser`: future Playwright Go wrapper.
-- `internal/answer`: future answer selection and question strategy logic.
+- `cmd/surveyctl`：命令行入口。
+- `internal/app`：后续用例编排层。
+- `internal/config`：带版本的运行配置。
+- `internal/engine`：运行内核选择和执行模式基础类型。
+- `internal/provider`：平台适配器契约和标准化问卷定义。
+- `internal/runner`：工作线程编排和运行计划校验。
+- `internal/browser`：后续 Playwright Go 封装。
+- `internal/answer`：后续答案选择和题型策略逻辑。
 
-## Runtime Engines
+## 运行内核
 
-Runtime mode is selectable:
+运行模式是可选的：
 
-- `hybrid`: default. Use browser compatibility first, then provider-declared HTTP fast paths when safe.
-- `browser`: browser-only mode for maximum compatibility.
-- `http`: HTTP-only mode. It must fail clearly when the provider does not support it.
+- `hybrid`：默认模式。优先保证浏览器兼容性；当平台适配器声明安全可用时，再使用 HTTP 快速路径。
+- `browser`：纯浏览器模式，优先追求最大兼容性。
+- `http`：纯 HTTP 模式。当平台不支持时，必须清晰失败。
 
-Providers must declare supported modes. The runner must not silently downgrade `http` to browser mode.
+平台适配器必须声明自己支持的模式。运行器不得把 `http` 静默降级为浏览器模式。
 
-## Provider Contract
+## 平台适配器契约
 
-A provider is responsible for:
+平台适配器负责：
 
-- Matching supported URLs.
-- Parsing a survey into a normalized `SurveyDefinition`.
-- Declaring runtime capabilities.
-- Future answer execution and submission handling.
-- Detecting completion, login, verification, and anti-abuse pages.
+- 匹配自己支持的 URL。
+- 将问卷解析为标准化 `SurveyDefinition`。
+- 声明运行能力。
+- 后续的答题执行和提交处理。
+- 检测完成页、登录页、验证页和反滥用页面。
 
-Adding a provider should not require changing the runner control loop.
+新增平台不应要求修改运行器主控制循环。
 
-## Configuration
+## 配置
 
-Configuration should be explicit and versioned. Dynamic Python dictionaries from the original project should become Go structs with compatibility migrations when needed.
+配置应显式且带版本。原项目中的动态 Python 字典应逐步转为 Go 结构体；需要兼容旧格式时，通过迁移逻辑处理。
 
-## Concurrency
+## 并发
 
-Future runtime work should use:
+后续运行时工作应使用：
 
-- `context.Context` for cancellation and deadlines.
-- Worker pools for concurrency.
-- Browser semaphores for resource control.
-- Provider-owned cleanup for platform resources.
+- `context.Context` 处理取消和截止时间。
+- 工作池控制并发。
+- 浏览器信号量控制资源。
+- 由平台适配器负责自身资源清理。
 
-## Safety
+## 安全边界
 
-The project must stop and report when it encounters platform verification, login requirements, or anti-abuse pages. It must not implement verification bypass behavior.
+项目遇到平台验证、登录要求或反滥用页面时，必须停止并报告。不得实现绕过验证的行为。

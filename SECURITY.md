@@ -1,19 +1,19 @@
-# Security Policy
+# 安全政策
 
-## Supported Versions
+## 支持范围
 
-`v0.1` is an initialization milestone. Security reports are accepted for the `main` branch until the first tagged release policy is defined.
+`v0.1` 是初始化里程碑。在首个正式标签版本的支持策略确定之前，安全报告默认面向 `main` 分支。
 
-## Reporting
+## 报告方式
 
-Please report security issues privately before opening a public issue. If no private channel is available, open a minimal GitHub Issue that asks for maintainer contact without publishing exploit details.
+请优先通过私密渠道报告安全问题，不要直接公开漏洞细节。如果暂时没有私密渠道，请创建一个最小化 GitHub 议题，只请求维护者联系，不发布利用细节。
 
-## Boundaries
+## 边界
 
-Do not submit reports that require abusing third-party survey platforms, bypassing verification systems, or collecting data without permission.
+请勿提交需要滥用第三方问卷平台、绕过验证系统，或未经许可收集数据的报告。
 
-## Design Defaults
+## 默认设计原则
 
-- Provider implementations must stop and report when they hit login, verification, or anti-abuse pages.
-- HTTP-only execution must fail clearly when a provider does not explicitly support it.
-- Secrets must not be written to logs, test fixtures, or examples.
+- 平台适配实现遇到登录、验证或反滥用页面时，必须停止并报告。
+- 纯 HTTP 运行模式在平台未明确支持时，必须清晰失败。
+- 密钥不得写入日志、测试夹具或示例。

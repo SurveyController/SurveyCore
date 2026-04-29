@@ -1,61 +1,61 @@
-# Roadmap
+# 路线图
 
-## Version Targets
+## 版本目标
 
-- `v0.1`: Project initialization, development rules, CI, persistent discovery docs, minimal CLI.
-- `v0.2`: CLI command framework, config schema, logging, and error model.
-- `v0.3`: Provider contract, URL detection, and fixture-based test system.
-- `v0.4`: Browser engine abstraction and Playwright Go wrapper.
-- `v0.5`: HTTP engine abstraction and selectable `hybrid`, `browser`, and `http` runtime modes.
-- `v0.6`: WJX parser prototype.
-- `v0.7`: Tencent Questionnaire parser prototype.
-- `v0.8`: Credamo parser prototype.
-- `v0.9`: Three-platform runtime preview, benchmarks, and stability regression.
-- `v1.0`: Official three-platform support with parsing, config generation, basic run workflow, tests, and documentation.
+- `v0.1`：项目初始化、开发规范、CI、探索文档持久化、最小 CLI。
+- `v0.2`：命令行框架、配置架构、日志和错误模型。
+- `v0.3`：平台适配器契约、URL 识别和基于夹具的测试体系。
+- `v0.4`：浏览器运行内核抽象和 Playwright Go 封装。
+- `v0.5`：HTTP 运行内核抽象，以及 `hybrid`、`browser`、`http` 三种可选运行模式。
+- `v0.6`：问卷星解析器原型。
+- `v0.7`：腾讯问卷解析器原型。
+- `v0.8`：Credamo 见数平台解析器原型。
+- `v0.9`：三平台运行时预览、性能基准和稳定性回归。
+- `v1.0`：三平台正式支持，包含解析、配置生成、基础运行流程、测试和文档闭环。
 
-## V0.1 Waves
+## V0.1 开发波次
 
-### Wave 0: Persist Discovery
+### 波次 0：持久化探索结论
 
-- Add original Python project analysis.
-- Add GitHub access and local tool notes.
-- Add roadmap.
+- 新增原 Python 项目分析。
+- 新增 GitHub 访问和本地工具记录。
+- 新增路线图。
 
-### Wave 1: Initialize Repository
+### 波次 1：初始化仓库
 
-- Initialize git on `main`.
-- Set `origin` to `https://github.com/hungryM0/SurveyController-go.git`.
-- Create Go module `github.com/hungryM0/SurveyController-go`.
-- Add minimal `cmd/surveyctl` CLI with `version`.
+- 在 `main` 上初始化 git。
+- 设置 `origin` 为 `https://github.com/hungryM0/SurveyController-go.git`。
+- 创建 Go 模块：`github.com/hungryM0/SurveyController-go`。
+- 新增最小 `cmd/surveyctl` 命令行工具，并支持 `version`。
 
-### Wave 2: Development Rules
+### 波次 2：开发规范
 
-- Add contribution guide.
-- Add development guide.
-- Add code of conduct and security policy.
-- Add editor and ignore rules.
+- 新增贡献指南。
+- 新增开发指南。
+- 新增行为准则和安全政策。
+- 新增编辑器和忽略规则。
 
-### Wave 3: GitHub Governance
+### 波次 3：GitHub 治理
 
-- Add issue templates.
-- Add PR template.
-- Add CI workflow.
-- Add release workflow skeleton.
+- 新增议题模板。
+- 新增拉取请求模板。
+- 新增 CI 工作流。
+- 新增发布工作流骨架。
 
-### Wave 4: Architecture Placeholders
+### 波次 4：架构占位
 
-- Add architecture document.
-- Add minimal packages for provider, config, runner, and engine mode.
-- Define selectable runtime engines without implementing real survey execution.
+- 新增架构文档。
+- 新增平台适配器、配置、运行器和运行内核模式的最小包。
+- 定义可选运行内核，但不实现真实问卷执行。
 
-### Wave 5: Verify and Bootstrap
+### 波次 5：验证与引导提交
 
-- Run `gofmt`.
-- Run `go test ./...`.
-- Run `go vet ./...`.
-- Commit bootstrap to `main`.
-- Push `main` to the empty remote.
+- 运行 `gofmt`。
+- 运行 `go test ./...`。
+- 运行 `go vet ./...`。
+- 将引导提交提交到 `main`。
+- 将 `main` 推送到空远程仓库。
 
-## V1.0 Boundary
+## V1.0 边界
 
-Three-platform support is a `v1.0` requirement, not a `v0.1` requirement. No provider should claim support until parser and runtime behavior are covered by tests.
+三平台支持是 `v1.0` 要求，不属于 `v0.1`。在解析器和运行时行为被测试覆盖之前，任何平台适配器都不应声明正式支持。

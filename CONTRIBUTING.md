@@ -1,15 +1,15 @@
-# Contributing
+# 贡献指南
 
-Thanks for helping build SurveyController-go.
+感谢你愿意一起建设 SurveyController-go。
 
-## Required Workflow
+## 必须遵守的协作流程
 
-- Use GitHub CLI (`gh`) by default for GitHub operations.
-- After the `v0.1` bootstrap commit, every non-trivial change must start from a GitHub Issue.
-- Work on a topic branch, then open a Pull Request.
-- Do not push directly to `main` after the bootstrap exception.
+- GitHub 相关操作默认优先使用 GitHub CLI（`gh`）。
+- `v0.1` 引导提交之后，所有非琐碎改动都必须先创建 GitHub 议题。
+- 在独立主题分支上开发，然后打开拉取请求。
+- 初始化例外结束后，不再直接向 `main` 推送。
 
-Suggested flow:
+建议流程：
 
 ```powershell
 gh issue create
@@ -18,20 +18,20 @@ go test ./...
 gh pr create --draft --fill
 ```
 
-## Go Style
+## Go 代码风格
 
-- Follow Google Go Style Guide and Go Code Review Comments.
-- Run `gofmt` before committing.
-- Prefer small packages with clear ownership.
-- Keep functions single-purpose.
-- Define interfaces on the consuming side.
-- Return explicit errors; do not hide failures behind logs only.
-- Use `context.Context` for work that can be canceled or timed out.
-- Avoid catch-all package names such as `util`, `common`, and `misc`.
+- 参考 Google Go 风格指南和 Go 代码审查建议。
+- 提交前运行 `gofmt`。
+- 包要小而清晰，职责边界明确。
+- 函数保持单一职责。
+- 接口尽量定义在消费侧。
+- 错误要显式返回，不要只写日志却吞掉失败。
+- 可取消、可超时的工作使用 `context.Context`。
+- 避免 `util`、`common`、`misc` 这类万能包名。
 
-## Testing
+## 测试要求
 
-Before opening a PR, run:
+打开拉取请求前请运行：
 
 ```powershell
 gofmt -w (git ls-files '*.go')
@@ -40,12 +40,12 @@ go test -race ./...
 go vet ./...
 ```
 
-If a check cannot run locally, explain why in the PR.
+如果某项检查无法在本地运行，请在拉取请求中说明原因。
 
-## Project Scope
+## 项目范围
 
-`v0.1` is initialization only. Provider parsing and runtime behavior are planned for later versions. The `v1.0` target is official support for WJX, Tencent Questionnaire, and Credamo.
+`v0.1` 只做项目初始化。平台解析和真实运行能力会在后续版本实现。`v1.0` 目标是正式支持问卷星、腾讯问卷和 Credamo 见数平台。
 
-## Safety
+## 安全边界
 
-This project is only for authorized learning and testing. Contributions that bypass platform verification, automate abuse, or facilitate fraudulent survey submissions will not be accepted.
+本项目仅供获得授权的学习与测试使用。任何绕过平台验证、自动化滥用，或帮助生成虚假答卷的贡献都不会被接受。

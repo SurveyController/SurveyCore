@@ -1,19 +1,19 @@
-# Code of Conduct
+# 行为准则
 
-SurveyController-go is for authorized learning and testing only.
+SurveyController-go 仅供获得授权的学习与测试使用。
 
-## Principles
+## 基本原则
 
-1. Follow applicable laws, platform terms, and research ethics.
-2. Use the project only with clear authorization from the survey owner.
-3. Do not pollute third-party survey data.
-4. Do not use the project to bypass verification, anti-abuse controls, or access restrictions.
-5. Do not collect, store, or share personal information without authorization.
+1. 遵守适用法律法规、平台服务条款和科研伦理。
+2. 仅在获得问卷所有者明确授权后使用本项目。
+3. 不污染第三方问卷数据。
+4. 不使用本项目绕过验证、反滥用控制或访问限制。
+5. 未经授权，不收集、存储或传播个人信息。
 
-## Community Expectations
+## 社区沟通要求
 
-- Keep discussion technical, respectful, and evidence-based.
-- Use GitHub Issues and Pull Requests for project work.
-- Include enough context for maintainers to reproduce bugs.
+- 保持讨论技术化、尊重事实，并提供依据。
+- 项目工作通过 GitHub 议题和拉取请求推进。
+- 报告问题时提供足够上下文，方便维护者复现。
 
-Maintainers may close issues or PRs that conflict with this code of conduct.
+维护者可以关闭违反本准则的议题或拉取请求。
