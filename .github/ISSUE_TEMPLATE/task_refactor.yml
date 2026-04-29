@@ -1,0 +1,27 @@
+name: Task or Refactor
+description: Track engineering work that is not a user-facing feature.
+title: "[Task]: "
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should change, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope and out of scope?
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks
+      placeholder: |
+        - go test ./...
+        - go vet ./...
+    validations:
+      required: true
