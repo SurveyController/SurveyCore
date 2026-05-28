@@ -12,11 +12,11 @@ import (
 
 // AIConfig holds AI generation configuration.
 type AIConfig struct {
-	Mode        string // "free", "api"
-	Provider    string // "deepseek", etc.
-	APIKey      string
-	BaseURL     string
-	Model       string
+	Mode         string // "free", "api"
+	Provider     string // "deepseek", etc.
+	APIKey       string
+	BaseURL      string
+	Model        string
 	SystemPrompt string
 }
 
@@ -36,7 +36,7 @@ func NewAIClient(config AIConfig) *AIClient {
 
 // GenerateAnswer generates a text answer for a question.
 func (a *AIClient) GenerateAnswer(questionTitle, questionType string, blankCount int) (string, error) {
-	if a.config.Mode == "free" {
+	if a.config.Mode == "" || a.config.Mode == "free" {
 		return a.generateFree(questionTitle, questionType, blankCount)
 	}
 	return a.generateAPI(questionTitle, questionType, blankCount)
@@ -70,9 +70,13 @@ func (a *AIClient) generateAPI(questionTitle, questionType string, blankCount in
 	if baseURL == "" {
 		baseURL = "https://api.deepseek.com/v1"
 	}
+	model := a.config.Model
+	if model == "" {
+		model = "deepseek-chat"
+	}
 
 	reqBody := map[string]any{
-		"model": a.config.Model,
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": prompt},
@@ -96,6 +100,9 @@ func (a *AIClient) generateAPI(questionTitle, questionType string, blankCount in
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("AI HTTP %d: %s", resp.StatusCode, truncateString(string(respBody), 200))
+	}
 	var result map[string]any
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", fmt.Errorf("解析 AI 响应失败: %w", err)
@@ -113,6 +120,13 @@ func (a *AIClient) generateAPI(questionTitle, questionType string, blankCount in
 	}
 
 	return "", fmt.Errorf("AI 响应格式错误")
+}
+
+func truncateString(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func (a *AIClient) buildPrompt(questionTitle, questionType string, blankCount int) string {

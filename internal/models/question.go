@@ -17,31 +17,31 @@ const (
 
 // QuestionEntry represents how a single question should be answered.
 type QuestionEntry struct {
-	QuestionType           string           `json:"question_type"`
-	Probabilities          any              `json:"probabilities"` // []float64, [][]float64, int, or nil
-	Texts                  []string         `json:"texts,omitempty"`
-	Rows                   int              `json:"rows,omitempty"`
-	OptionCount            int              `json:"option_count,omitempty"`
-	DistributionMode       string           `json:"distribution_mode,omitempty"`
-	CustomWeights          any              `json:"custom_weights,omitempty"` // []float64 or [][]float64 or nil
-	QuestionNum            *int             `json:"question_num,omitempty"`
-	QuestionTitle          *string          `json:"question_title,omitempty"`
-	SurveyProvider         string           `json:"survey_provider,omitempty"`
-	ProviderQuestionID     *string          `json:"provider_question_id,omitempty"`
-	ProviderPageID         *string          `json:"provider_page_id,omitempty"`
-	AIEnabled              bool             `json:"ai_enabled,omitempty"`
-	MultiTextBlankModes    []string         `json:"multi_text_blank_modes,omitempty"`
-	MultiTextBlankAIFlags  []bool           `json:"multi_text_blank_ai_flags,omitempty"`
-	MultiTextBlankIntRanges [][]int         `json:"multi_text_blank_int_ranges,omitempty"`
-	TextRandomMode         string           `json:"text_random_mode,omitempty"`
-	TextRandomIntRange     []int            `json:"text_random_int_range,omitempty"`
-	OptionFillTexts        []*string        `json:"option_fill_texts,omitempty"`
-	FillableOptionIndices  []int            `json:"fillable_option_indices,omitempty"`
-	AttachedOptionSelects  []map[string]any `json:"attached_option_selects,omitempty"`
-	IsLocation             bool             `json:"is_location,omitempty"`
-	LocationParts          []string         `json:"location_parts,omitempty"`
-	Dimension              *string          `json:"dimension,omitempty"`
-	PsychoBias             string           `json:"psycho_bias,omitempty"`
+	QuestionType            string           `json:"question_type"`
+	Probabilities           any              `json:"probabilities"` // []float64, [][]float64, int, or nil
+	Texts                   []string         `json:"texts,omitempty"`
+	Rows                    int              `json:"rows,omitempty"`
+	OptionCount             int              `json:"option_count,omitempty"`
+	DistributionMode        string           `json:"distribution_mode,omitempty"`
+	CustomWeights           any              `json:"custom_weights,omitempty"` // []float64 or [][]float64 or nil
+	QuestionNum             *int             `json:"question_num,omitempty"`
+	QuestionTitle           *string          `json:"question_title,omitempty"`
+	SurveyProvider          string           `json:"survey_provider,omitempty"`
+	ProviderQuestionID      *string          `json:"provider_question_id,omitempty"`
+	ProviderPageID          *string          `json:"provider_page_id,omitempty"`
+	AIEnabled               bool             `json:"ai_enabled,omitempty"`
+	MultiTextBlankModes     []string         `json:"multi_text_blank_modes,omitempty"`
+	MultiTextBlankAIFlags   []bool           `json:"multi_text_blank_ai_flags,omitempty"`
+	MultiTextBlankIntRanges [][]int          `json:"multi_text_blank_int_ranges,omitempty"`
+	TextRandomMode          string           `json:"text_random_mode,omitempty"`
+	TextRandomIntRange      []int            `json:"text_random_int_range,omitempty"`
+	OptionFillTexts         []*string        `json:"option_fill_texts,omitempty"`
+	FillableOptionIndices   []int            `json:"fillable_option_indices,omitempty"`
+	AttachedOptionSelects   []map[string]any `json:"attached_option_selects,omitempty"`
+	IsLocation              bool             `json:"is_location,omitempty"`
+	LocationParts           []string         `json:"location_parts,omitempty"`
+	Dimension               *string          `json:"dimension,omitempty"`
+	PsychoBias              string           `json:"psycho_bias,omitempty"`
 }
 
 // InferOptionCount tries to determine the option count from saved weights/texts.

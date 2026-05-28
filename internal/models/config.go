@@ -2,7 +2,7 @@ package models
 
 import (
 	"encoding/json"
-	"fmt"
+	"strings"
 )
 
 // Default UA keys for random user agent
@@ -10,61 +10,61 @@ var DefaultRandomUAKeys = []string{"wechat", "mobile", "pc"}
 
 // RuntimeConfig is the top-level user-facing configuration object.
 type RuntimeConfig struct {
-	URL                   string              `json:"url"`
-	SurveyTitle           string              `json:"survey_title,omitempty"`
-	SurveyProvider        string              `json:"survey_provider,omitempty"`
-	Target                int                 `json:"target,omitempty"`
-	Threads               int                 `json:"threads,omitempty"`
-	SubmitInterval        [2]int              `json:"submit_interval,omitempty"`
-	AnswerDuration        [2]int              `json:"answer_duration,omitempty"`
-	RandomIPEnabled       bool                `json:"random_ip_enabled,omitempty"`
-	ProxySource           string              `json:"proxy_source,omitempty"`
-	CustomProxyAPI        string              `json:"custom_proxy_api,omitempty"`
-	ProxyAreaCode         *string             `json:"proxy_area_code,omitempty"`
-	RandomUAEnabled       bool                `json:"random_ua_enabled,omitempty"`
-	RandomUAKeys          []string            `json:"random_ua_keys,omitempty"`
-	RandomUARatios        map[string]int      `json:"random_ua_ratios,omitempty"`
-	FailStopEnabled       bool                `json:"fail_stop_enabled,omitempty"`
-	PauseOnAliyunCaptcha  bool                `json:"pause_on_aliyun_captcha,omitempty"`
-	ReliabilityModeEnabled bool               `json:"reliability_mode_enabled,omitempty"`
-	PsychoTargetAlpha     float64             `json:"psycho_target_alpha,omitempty"`
-	AIMode                string              `json:"ai_mode,omitempty"`
-	AIProvider            string              `json:"ai_provider,omitempty"`
-	AIAPIKey              string              `json:"ai_api_key,omitempty"`
-	AIBaseURL             string              `json:"ai_base_url,omitempty"`
-	AIAPIProtocol         string              `json:"ai_api_protocol,omitempty"`
-	AIModel               string              `json:"ai_model,omitempty"`
-	AISystemPrompt        string              `json:"ai_system_prompt,omitempty"`
-	ReverseFillEnabled    bool                `json:"reverse_fill_enabled,omitempty"`
-	ReverseFillSourcePath string              `json:"reverse_fill_source_path,omitempty"`
-	ReverseFillFormat     string              `json:"reverse_fill_format,omitempty"`
-	ReverseFillStartRow   int                 `json:"reverse_fill_start_row,omitempty"`
-	ReverseFillThreads    int                 `json:"reverse_fill_threads,omitempty"`
-	AnswerRules           []map[string]any    `json:"answer_rules,omitempty"`
-	DimensionGroups       []string            `json:"dimension_groups,omitempty"`
-	QuestionEntries       []QuestionEntry     `json:"question_entries,omitempty"`
-	QuestionsInfo         []SurveyQuestionMeta `json:"questions_info,omitempty"`
+	URL                    string               `json:"url"`
+	SurveyTitle            string               `json:"survey_title,omitempty"`
+	SurveyProvider         string               `json:"survey_provider,omitempty"`
+	Target                 int                  `json:"target,omitempty"`
+	Threads                int                  `json:"threads,omitempty"`
+	SubmitInterval         [2]int               `json:"submit_interval,omitempty"`
+	AnswerDuration         [2]int               `json:"answer_duration,omitempty"`
+	RandomIPEnabled        bool                 `json:"random_ip_enabled,omitempty"`
+	ProxySource            string               `json:"proxy_source,omitempty"`
+	CustomProxyAPI         string               `json:"custom_proxy_api,omitempty"`
+	ProxyAreaCode          *string              `json:"proxy_area_code,omitempty"`
+	RandomUAEnabled        bool                 `json:"random_ua_enabled,omitempty"`
+	RandomUAKeys           []string             `json:"random_ua_keys,omitempty"`
+	RandomUARatios         map[string]int       `json:"random_ua_ratios,omitempty"`
+	FailStopEnabled        bool                 `json:"fail_stop_enabled,omitempty"`
+	PauseOnAliyunCaptcha   bool                 `json:"pause_on_aliyun_captcha,omitempty"`
+	ReliabilityModeEnabled bool                 `json:"reliability_mode_enabled,omitempty"`
+	PsychoTargetAlpha      float64              `json:"psycho_target_alpha,omitempty"`
+	AIMode                 string               `json:"ai_mode,omitempty"`
+	AIProvider             string               `json:"ai_provider,omitempty"`
+	AIAPIKey               string               `json:"ai_api_key,omitempty"`
+	AIBaseURL              string               `json:"ai_base_url,omitempty"`
+	AIAPIProtocol          string               `json:"ai_api_protocol,omitempty"`
+	AIModel                string               `json:"ai_model,omitempty"`
+	AISystemPrompt         string               `json:"ai_system_prompt,omitempty"`
+	ReverseFillEnabled     bool                 `json:"reverse_fill_enabled,omitempty"`
+	ReverseFillSourcePath  string               `json:"reverse_fill_source_path,omitempty"`
+	ReverseFillFormat      string               `json:"reverse_fill_format,omitempty"`
+	ReverseFillStartRow    int                  `json:"reverse_fill_start_row,omitempty"`
+	ReverseFillThreads     int                  `json:"reverse_fill_threads,omitempty"`
+	AnswerRules            []map[string]any     `json:"answer_rules,omitempty"`
+	DimensionGroups        []string             `json:"dimension_groups,omitempty"`
+	QuestionEntries        []QuestionEntry      `json:"question_entries,omitempty"`
+	QuestionsInfo          []SurveyQuestionMeta `json:"questions_info,omitempty"`
 }
 
 // NewDefaultRuntimeConfig returns a RuntimeConfig with sensible defaults.
 func NewDefaultRuntimeConfig() RuntimeConfig {
 	return RuntimeConfig{
-		SurveyProvider:        ProviderWJX,
-		Target:                1,
-		Threads:               1,
-		ProxySource:           "default",
-		FailStopEnabled:       true,
-		PauseOnAliyunCaptcha:  true,
+		SurveyProvider:         ProviderWJX,
+		Target:                 1,
+		Threads:                1,
+		ProxySource:            "default",
+		FailStopEnabled:        true,
+		PauseOnAliyunCaptcha:   true,
 		ReliabilityModeEnabled: true,
-		PsychoTargetAlpha:     0.85,
-		AIMode:                "free",
-		AIProvider:            "deepseek",
-		AIAPIProtocol:         "auto",
-		ReverseFillFormat:     "auto",
-		ReverseFillStartRow:   1,
-		ReverseFillThreads:    1,
-		RandomUAKeys:          append([]string{}, DefaultRandomUAKeys...),
-		RandomUARatios:        map[string]int{"wechat": 33, "mobile": 33, "pc": 34},
+		PsychoTargetAlpha:      0.85,
+		AIMode:                 "free",
+		AIProvider:             "deepseek",
+		AIAPIProtocol:          "auto",
+		ReverseFillFormat:      "auto",
+		ReverseFillStartRow:    1,
+		ReverseFillThreads:     1,
+		RandomUAKeys:           append([]string{}, DefaultRandomUAKeys...),
+		RandomUARatios:         map[string]int{"wechat": 33, "mobile": 33, "pc": 34},
 	}
 }
 
@@ -91,5 +91,11 @@ const (
 
 // MakeProviderQuestionKey creates a unique key for a provider question.
 func MakeProviderQuestionKey(provider, pageID, questionID string) string {
-	return fmt.Sprintf("%s:%s:%s", provider, pageID, questionID)
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	pageID = strings.TrimSpace(pageID)
+	questionID = strings.TrimSpace(questionID)
+	if provider == "" || pageID == "" || questionID == "" {
+		return ""
+	}
+	return provider + ":" + pageID + ":" + questionID
 }

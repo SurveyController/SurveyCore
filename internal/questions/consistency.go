@@ -7,30 +7,30 @@ import (
 
 // AnswerRule defines a conditional rule for answer consistency.
 type AnswerRule struct {
-	ConditionQuestionNum    int      `json:"condition_question_num"`
-	ConditionMode           string   `json:"condition_mode"` // "selected" or "not_selected"
-	ConditionOptionIndices  []int    `json:"condition_option_indices"`
-	TargetQuestionNum       int      `json:"target_question_num"`
-	ActionMode              string   `json:"action_mode"` // "must_select" or "must_not_select"
-	TargetOptionIndices     []int    `json:"target_option_indices"`
-	ConditionRowIndex       *int     `json:"condition_row_index,omitempty"`
-	TargetRowIndex          *int     `json:"target_row_index,omitempty"`
+	ConditionQuestionNum   int    `json:"condition_question_num"`
+	ConditionMode          string `json:"condition_mode"` // "selected" or "not_selected"
+	ConditionOptionIndices []int  `json:"condition_option_indices"`
+	TargetQuestionNum      int    `json:"target_question_num"`
+	ActionMode             string `json:"action_mode"` // "must_select" or "must_not_select"
+	TargetOptionIndices    []int  `json:"target_option_indices"`
+	ConditionRowIndex      *int   `json:"condition_row_index,omitempty"`
+	TargetRowIndex         *int   `json:"target_row_index,omitempty"`
 }
 
 // ConsistencyContext manages answer rules and tracks answers.
 type ConsistencyContext struct {
 	mu           sync.RWMutex
 	rules        []AnswerRule
-	answered     map[int]int // question_num -> selected_option_index
-	answeredRows map[string]int // "question_num:row_index" -> selected_option_index
+	answered     map[int][]int    // question_num -> selected option indices
+	answeredRows map[string][]int // "question_num:row_index" -> selected option indices
 }
 
 // NewConsistencyContext creates a new consistency context.
 func NewConsistencyContext(rules []AnswerRule) *ConsistencyContext {
 	return &ConsistencyContext{
 		rules:        rules,
-		answered:     make(map[int]int),
-		answeredRows: make(map[string]int),
+		answered:     make(map[int][]int),
+		answeredRows: make(map[string][]int),
 	}
 }
 
@@ -38,7 +38,14 @@ func NewConsistencyContext(rules []AnswerRule) *ConsistencyContext {
 func (c *ConsistencyContext) RecordAnswer(questionNum, optionIndex int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.answered[questionNum] = optionIndex
+	c.answered[questionNum] = []int{optionIndex}
+}
+
+// RecordAnswers records multiple selected options for consistency checking.
+func (c *ConsistencyContext) RecordAnswers(questionNum int, optionIndices []int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.answered[questionNum] = append([]int{}, optionIndices...)
 }
 
 // RecordMatrixAnswer records a matrix answer.
@@ -46,7 +53,7 @@ func (c *ConsistencyContext) RecordMatrixAnswer(questionNum, rowIndex, optionInd
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := matrixKey(questionNum, rowIndex)
-	c.answeredRows[key] = optionIndex
+	c.answeredRows[key] = []int{optionIndex}
 }
 
 // ApplySingleConsistency adjusts probabilities based on the latest triggered rule (matching Python behavior).
@@ -136,13 +143,23 @@ func (c *ConsistencyContext) isRuleTriggered(rule AnswerRule) bool {
 	return matchesCondition(answered, rule.ConditionOptionIndices, rule.ConditionMode)
 }
 
-func matchesCondition(answered int, conditionIndices []int, mode string) bool {
-	for _, idx := range conditionIndices {
-		if answered == idx {
-			return mode == "selected"
+func matchesCondition(answered []int, conditionIndices []int, mode string) bool {
+	selected := false
+	for _, value := range answered {
+		for _, idx := range conditionIndices {
+			if value == idx {
+				selected = true
+				break
+			}
+		}
+		if selected {
+			break
 		}
 	}
-	return mode != "selected"
+	if mode == "selected" {
+		return selected
+	}
+	return !selected
 }
 
 func (c *ConsistencyContext) applyRule(probabilities []float64, rule AnswerRule) []float64 {

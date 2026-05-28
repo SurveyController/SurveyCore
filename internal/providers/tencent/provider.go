@@ -16,18 +16,23 @@ import (
 )
 
 const (
-	ProviderName    = "qq"
-	defaultUA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	apiBase         = "https://wj.qq.com/api/v2/respondent/surveys"
-	localeOrder     = "zhs,zht,zh,en"
+	ProviderName = "qq"
+	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	apiBase      = "https://wj.qq.com/api/v2/respondent/surveys"
+	localeOrder  = "zhs,zht,zh,en"
 )
 
-var urlRe = regexp.MustCompile(`/s\d+/(\d+)/([A-Za-z0-9_-]+)/?$`)
+var (
+	urlRe            = regexp.MustCompile(`/s\d+/(\d+)/([A-Za-z0-9_-]+)/?$`)
+	qqQuestionIDRe   = regexp.MustCompile(`\bq-[A-Za-z0-9_-]+\b`)
+	qqPageIDRe       = regexp.MustCompile(`\bp-[A-Za-z0-9_-]+\b`)
+	qqLogicEndTokens = []string{"submit", "finish", "complete", "end", "结束", "提交", "完成"}
+)
 
 // Provider implements the Tencent survey provider.
 type Provider struct{}
 
-func NewProvider() *Provider { return &Provider{} }
+func NewProvider() *Provider             { return &Provider{} }
 func (p *Provider) ProviderName() string { return ProviderName }
 
 // ParseSurvey fetches and parses a Tencent survey.
@@ -79,17 +84,14 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	}
 
 	// Build answer actions
-	actions := buildAnswerActions(cfg, state, rawQuestions)
+	actions := buildAnswerActions(cfg, state, rawQuestions, opts.ThreadName)
 
 	// Build submit body
 	ua := opts.UserAgent
 	if ua == "" {
 		ua = defaultUA
 	}
-	duration := 10 + rand.Intn(20)
-	if cfg.AnswerDurationRangeSeconds[0] > 0 && cfg.AnswerDurationRangeSeconds[1] > 0 {
-		duration = cfg.AnswerDurationRangeSeconds[0] + rand.Intn(cfg.AnswerDurationRangeSeconds[1]-cfg.AnswerDurationRangeSeconds[0])
-	}
+	duration := sampleAnswerDurationSeconds(cfg)
 
 	submitBody := buildSubmitBody(surveyID, hashValue, rawQuestions, actions, duration, ua)
 
@@ -327,6 +329,10 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 		if pageID == "" {
 			pageID = "1"
 		}
+		page := intFromAny(q["page"])
+		if page <= 0 {
+			page = 1
+		}
 
 		optionTexts := extractOptionTexts(q, providerType)
 		options := len(optionTexts)
@@ -341,9 +347,6 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 		// Extract multi-select limits
 		minLimit, maxLimit := extractMultiSelectLimits(title, options)
 
-		// Extract jump rules
-		jumpRules := extractJumpRules(q)
-
 		// Row texts for matrix
 		rowTexts := extractRowTexts(q)
 
@@ -352,17 +355,16 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 			Title:              title,
 			TypeCode:           typeCode,
 			Options:            options,
-					OptionTexts:        optionTexts,
+			OptionTexts:        optionTexts,
 			Rows:               len(rowTexts),
 			RowTexts:           rowTexts,
-			Page:               1,
+			Page:               page,
 			Provider:           ProviderName,
 			ProviderQuestionID: questionID,
 			ProviderPageID:     pageID,
 			ProviderType:       providerType,
 			ForcedOptionIndex:  forcedIdx,
-			JumpRules:          jumpRules,
-			HasJump:            len(jumpRules) > 0,
+			LogicParseStatus:   models.LogicParseStatusNone,
 		}
 
 		if minLimit != nil {
@@ -385,6 +387,7 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 		result = append(result, qm)
 		num++
 	}
+	attachTencentLogicMetadata(raw, result)
 	return result
 }
 
@@ -466,6 +469,426 @@ func extractJumpRules(q map[string]any) []map[string]any {
 	return rules
 }
 
+type tencentLogicState struct {
+	JumpRules             []map[string]any
+	HasJump               bool
+	HasSourceDisplayLogic bool
+	ExactLogicParsed      bool
+}
+
+func attachTencentLogicMetadata(rawQuestions []map[string]any, questions []models.SurveyQuestionMeta) {
+	if len(rawQuestions) == 0 || len(questions) == 0 {
+		return
+	}
+	questionByProviderID := make(map[string]*models.SurveyQuestionMeta)
+	questionNumByProviderID := make(map[string]int)
+	firstQuestionNumByPageID := make(map[string]int)
+	maxQuestionNum := 0
+	for i := range questions {
+		q := &questions[i]
+		if q.ProviderQuestionID == "" || q.Num <= 0 {
+			continue
+		}
+		questionByProviderID[q.ProviderQuestionID] = q
+		questionNumByProviderID[q.ProviderQuestionID] = q.Num
+		if q.Num > maxQuestionNum {
+			maxQuestionNum = q.Num
+		}
+		if q.ProviderPageID != "" {
+			if _, exists := firstQuestionNumByPageID[q.ProviderPageID]; !exists {
+				firstQuestionNumByPageID[q.ProviderPageID] = q.Num
+			}
+		}
+	}
+
+	stateByProviderID := make(map[string]*tencentLogicState)
+	sourceTargets := make(map[string][]map[string]any)
+	inboundConditions := make(map[string][]map[string]any)
+	for _, rawQuestion := range rawQuestions {
+		providerQuestionID := strings.TrimSpace(getString(rawQuestion, "id"))
+		if providerQuestionID == "" {
+			continue
+		}
+		if _, ok := questionByProviderID[providerQuestionID]; !ok {
+			continue
+		}
+		state := stateByProviderID[providerQuestionID]
+		if state == nil {
+			state = &tencentLogicState{}
+			stateByProviderID[providerQuestionID] = state
+		}
+
+		if target := resolveTencentJumpTarget(rawQuestion["goto"], questionNumByProviderID, firstQuestionNumByPageID, maxQuestionNum); target != nil {
+			state.JumpRules = append(state.JumpRules, map[string]any{
+				"option_index": -1,
+				"jumpto":       *target,
+				"option_text":  nil,
+			})
+			state.HasJump = true
+			state.ExactLogicParsed = true
+		} else if valuePresent(rawQuestion["goto"]) {
+			state.HasJump = true
+		}
+
+		options, _ := rawQuestion["options"].([]any)
+		for optionIndex, optionRaw := range options {
+			option, ok := optionRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if target := resolveTencentJumpTarget(option["goto"], questionNumByProviderID, firstQuestionNumByPageID, maxQuestionNum); target != nil {
+				state.JumpRules = append(state.JumpRules, map[string]any{
+					"option_index": optionIndex,
+					"jumpto":       *target,
+					"option_text":  strings.TrimSpace(getString(option, "text")),
+				})
+				state.HasJump = true
+				state.ExactLogicParsed = true
+			} else if valuePresent(option["goto"]) {
+				state.HasJump = true
+			}
+
+			displayPayload := option["display"]
+			if !valuePresent(displayPayload) {
+				continue
+			}
+			state.HasSourceDisplayLogic = true
+			targetQuestionIDs := extractTencentQuestionRefs(displayPayload)
+			if len(targetQuestionIDs) == 0 {
+				continue
+			}
+			state.ExactLogicParsed = true
+			for _, targetQuestionID := range targetQuestionIDs {
+				targetQuestionNum := questionNumByProviderID[targetQuestionID]
+				if targetQuestionNum <= 0 {
+					continue
+				}
+				sourceQuestionNum := questionNumByProviderID[providerQuestionID]
+				sourceTargets[providerQuestionID] = append(sourceTargets[providerQuestionID], map[string]any{
+					"target_question_num":      targetQuestionNum,
+					"condition_option_indices": []int{optionIndex},
+					"condition_mode":           "selected",
+				})
+				inboundConditions[targetQuestionID] = append(inboundConditions[targetQuestionID], map[string]any{
+					"condition_question_num":   sourceQuestionNum,
+					"condition_mode":           "selected",
+					"condition_option_indices": []int{optionIndex},
+				})
+			}
+		}
+	}
+
+	for _, rawQuestion := range rawQuestions {
+		providerQuestionID := strings.TrimSpace(getString(rawQuestion, "id"))
+		if providerQuestionID == "" {
+			continue
+		}
+		if _, hasInbound := inboundConditions[providerQuestionID]; hasInbound {
+			continue
+		}
+		referQuestionIDs := extractTencentQuestionRefs(rawQuestion["refer"])
+		if len(referQuestionIDs) == 0 {
+			continue
+		}
+		targetQuestionNum := questionNumByProviderID[providerQuestionID]
+		if targetQuestionNum <= 0 {
+			continue
+		}
+		for _, referQuestionID := range referQuestionIDs {
+			sourceQuestionNum := questionNumByProviderID[referQuestionID]
+			if sourceQuestionNum <= 0 {
+				continue
+			}
+			inboundConditions[providerQuestionID] = append(inboundConditions[providerQuestionID], map[string]any{
+				"condition_question_num":   sourceQuestionNum,
+				"condition_mode":           "selected",
+				"condition_option_indices": []int{},
+			})
+			sourceTargets[referQuestionID] = append(sourceTargets[referQuestionID], map[string]any{
+				"target_question_num":      targetQuestionNum,
+				"condition_option_indices": []int{},
+				"condition_mode":           "selected",
+			})
+		}
+	}
+
+	for _, rawQuestion := range rawQuestions {
+		providerQuestionID := strings.TrimSpace(getString(rawQuestion, "id"))
+		q := questionByProviderID[providerQuestionID]
+		if q == nil {
+			continue
+		}
+		state := stateByProviderID[providerQuestionID]
+		if state == nil {
+			state = &tencentLogicState{}
+		}
+		q.JumpRules = dedupeLogicMaps(state.JumpRules, "option_index", "jumpto")
+		q.HasJump = state.HasJump || len(q.JumpRules) > 0
+
+		controls := normalizeLogicMaps(sourceTargets[providerQuestionID])
+		q.ControlsDisplayTargets = dedupeLogicMaps(controls, "target_question_num", "condition_option_indices", "condition_mode")
+		if len(q.ControlsDisplayTargets) > 0 || state.HasSourceDisplayLogic {
+			q.HasDependentDisplayLogic = true
+		}
+
+		referQuestionIDs := extractTencentQuestionRefs(rawQuestion["refer"])
+		if valuePresent(rawQuestion["hidden"]) || len(referQuestionIDs) > 0 || len(inboundConditions[providerQuestionID]) > 0 {
+			q.HasDisplayCondition = true
+		}
+		conditions := normalizeLogicMaps(inboundConditions[providerQuestionID])
+		q.DisplayConditions = dedupeLogicMaps(conditions, "condition_question_num", "condition_option_indices", "condition_mode")
+		if displayConditionsHaveOptionIndices(q.DisplayConditions) {
+			state.ExactLogicParsed = true
+		}
+
+		hasAnyLogic := q.HasJump || q.HasDisplayCondition || q.HasDependentDisplayLogic
+		if hasAnyLogic && state.ExactLogicParsed {
+			q.LogicParseStatus = models.LogicParseStatusComplete
+		} else if hasAnyLogic {
+			q.LogicParseStatus = models.LogicParseStatusUnknown
+		}
+	}
+}
+
+func resolveTencentJumpTarget(rawTarget any, questionNumByProviderID map[string]int, firstQuestionNumByPageID map[string]int, maxQuestionNum int) *int {
+	if !valuePresent(rawTarget) {
+		return nil
+	}
+	if numeric := intFromAny(rawTarget); numeric > 0 {
+		return &numeric
+	}
+	for _, questionID := range extractTencentQuestionRefs(rawTarget) {
+		if target := questionNumByProviderID[questionID]; target > 0 {
+			return &target
+		}
+	}
+	for _, pageID := range extractTencentPageRefs(rawTarget) {
+		if target := firstQuestionNumByPageID[pageID]; target > 0 {
+			return &target
+		}
+	}
+	lowered := strings.ToLower(strings.TrimSpace(fmt.Sprint(rawTarget)))
+	if lowered != "" {
+		for _, token := range qqLogicEndTokens {
+			if strings.Contains(lowered, token) {
+				target := maxQuestionNum + 1
+				return &target
+			}
+		}
+	}
+	return nil
+}
+
+func extractTencentQuestionRefs(value any) []string {
+	return uniqueStrings(collectTencentTokenRefs(value, qqQuestionIDRe, 0))
+}
+
+func extractTencentPageRefs(value any) []string {
+	return uniqueStrings(collectTencentTokenRefs(value, qqPageIDRe, 0))
+}
+
+func collectTencentTokenRefs(value any, pattern *regexp.Regexp, depth int) []string {
+	if depth > 5 || value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		var result []string
+		for key, item := range typed {
+			result = append(result, collectTencentTokenRefs(key, pattern, depth+1)...)
+			result = append(result, collectTencentTokenRefs(item, pattern, depth+1)...)
+		}
+		return result
+	case []any:
+		var result []string
+		for _, item := range typed {
+			result = append(result, collectTencentTokenRefs(item, pattern, depth+1)...)
+		}
+		return result
+	case []map[string]any:
+		var result []string
+		for _, item := range typed {
+			result = append(result, collectTencentTokenRefs(item, pattern, depth+1)...)
+		}
+		return result
+	default:
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			return nil
+		}
+		return pattern.FindAllString(text, -1)
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]bool)
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func normalizeLogicMaps(items []map[string]any) []map[string]any {
+	normalized := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		normalizedItem := make(map[string]any, len(item))
+		for key, value := range item {
+			switch key {
+			case "condition_question_num", "target_question_num", "jumpto", "option_index":
+				normalizedItem[key] = intFromAny(value)
+			case "condition_option_indices":
+				normalizedItem[key] = intSliceFromAny(value)
+			case "condition_mode":
+				mode := strings.TrimSpace(fmt.Sprint(value))
+				if mode == "" {
+					mode = "selected"
+				}
+				normalizedItem[key] = mode
+			default:
+				normalizedItem[key] = value
+			}
+		}
+		normalized = append(normalized, normalizedItem)
+	}
+	return normalized
+}
+
+func dedupeLogicMaps(items []map[string]any, keyFields ...string) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	seen := make(map[string]bool)
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		keyParts := make([]string, 0, len(keyFields))
+		for _, field := range keyFields {
+			keyParts = append(keyParts, fmt.Sprint(normalizedLogicKeyValue(item[field])))
+		}
+		key := strings.Join(keyParts, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, item)
+	}
+	return result
+}
+
+func normalizedLogicKeyValue(value any) any {
+	switch typed := value.(type) {
+	case []int:
+		values := append([]int{}, typed...)
+		parts := make([]string, len(values))
+		for i, value := range values {
+			parts[i] = strconv.Itoa(value)
+		}
+		return strings.Join(parts, ",")
+	case []any:
+		values := intSliceFromAny(typed)
+		parts := make([]string, len(values))
+		for i, value := range values {
+			parts[i] = strconv.Itoa(value)
+		}
+		return strings.Join(parts, ",")
+	default:
+		return typed
+	}
+}
+
+func displayConditionsHaveOptionIndices(conditions []map[string]any) bool {
+	for _, condition := range conditions {
+		if len(intSliceFromAny(condition["condition_option_indices"])) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func valuePresent(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float64:
+		return typed != 0
+	case float32:
+		return typed != 0
+	case json.Number:
+		return strings.TrimSpace(typed.String()) != "" && typed.String() != "0"
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	case []map[string]any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	default:
+		return true
+	}
+}
+
+func intFromAny(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case float32:
+		return int(typed)
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return int(parsed)
+		}
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func intSliceFromAny(value any) []int {
+	switch typed := value.(type) {
+	case []int:
+		return append([]int{}, typed...)
+	case []float64:
+		result := make([]int, 0, len(typed))
+		for _, item := range typed {
+			if item >= 0 {
+				result = append(result, int(item))
+			}
+		}
+		return result
+	case []any:
+		result := make([]int, 0, len(typed))
+		for _, item := range typed {
+			value := intFromAny(item)
+			if value >= 0 {
+				result = append(result, value)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 func extractForceSelect(title string, optionTexts []string) int {
 	// Simple heuristic: look for "请选择 X" patterns
 	for i, opt := range optionTexts {
@@ -504,7 +927,8 @@ func extractMultiSelectLimits(title string, optionCount int) (*int, *int) {
 	return minLimit, maxLimit
 }
 
-func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState, rawQuestions []map[string]any) []TencentAnswerAction {
+func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState, rawQuestions []map[string]any, threadName string) []TencentAnswerAction {
+	runtime := questions.NewRunContextForThread(cfg, state, threadName)
 	// Build a map from question ID to raw question for option ID lookup
 	rawByQID := make(map[string]map[string]any)
 	for _, rq := range rawQuestions {
@@ -512,11 +936,36 @@ func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionStat
 	}
 
 	var actions []TencentAnswerAction
-	for _, meta := range sortedQuestions(cfg) {
+	actionByNum := make(map[int]TencentAnswerAction)
+	jumpTarget := (*int)(nil)
+	maxQuestionNum := 0
+	ordered := sortedQuestions(cfg)
+	for _, meta := range ordered {
+		if meta.Num > maxQuestionNum {
+			maxQuestionNum = meta.Num
+		}
+	}
+	for _, meta := range ordered {
+		if jumpTarget != nil {
+			if meta.Num < *jumpTarget {
+				continue
+			}
+			jumpTarget = nil
+		}
+		if !tencentQuestionVisible(meta, actionByNum) {
+			continue
+		}
 		rawQ := rawByQID[meta.ProviderQuestionID]
-		action := buildSingleAction(cfg, meta, rawQ)
+		action := buildSingleAction(cfg, meta, rawQ, runtime)
 		if action != nil {
+			actionByNum[meta.Num] = *action
 			actions = append(actions, *action)
+			if target := tencentJumpTarget(meta, *action); target != nil {
+				if *target > maxQuestionNum {
+					break
+				}
+				jumpTarget = target
+			}
 		}
 	}
 	return actions
@@ -529,7 +978,14 @@ func sortedQuestions(cfg *models.ExecutionConfig) []models.SurveyQuestionMeta {
 	}
 	for i := 0; i < len(questions); i++ {
 		for j := i + 1; j < len(questions); j++ {
-			if questions[i].Num > questions[j].Num {
+			pi, pj := questions[i].Page, questions[j].Page
+			if pi == 0 {
+				pi = 1
+			}
+			if pj == 0 {
+				pj = 1
+			}
+			if pi > pj || (pi == pj && questions[i].Num > questions[j].Num) {
 				questions[i], questions[j] = questions[j], questions[i]
 			}
 		}
@@ -537,7 +993,7 @@ func sortedQuestions(cfg *models.ExecutionConfig) []models.SurveyQuestionMeta {
 	return questions
 }
 
-func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, rawQ map[string]any) *TencentAnswerAction {
+func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
 	typeCode := meta.TypeCode
 	optionCount := meta.Options
 	if optionCount <= 0 {
@@ -547,55 +1003,201 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	configIdx := -1
 	if idx, ok := cfg.QuestionConfigIndexMap[meta.Num]; ok {
 		configIdx = parseConfigIdx(idx)
+	} else if idx, ok := providerConfigIndex(cfg, meta); ok {
+		configIdx = parseConfigIdx(idx)
 	}
 
 	switch typeCode {
 	case "3": // single
-		return buildChoiceAnswer(cfg, meta, configIdx, optionCount, false, rawQ)
+		return buildChoiceAnswer(cfg, meta, configIdx, optionCount, false, rawQ, runtime)
 	case "4": // multiple
-		return buildMultipleAnswer(cfg, meta, configIdx, optionCount, rawQ)
+		return buildMultipleAnswer(cfg, meta, configIdx, optionCount, rawQ, runtime)
 	case "5": // scale/nps
-		return buildScaleAnswer(cfg, meta, configIdx, optionCount, rawQ)
+		return buildScaleAnswer(cfg, meta, configIdx, optionCount, rawQ, runtime)
 	case "6": // matrix
-		return buildMatrixAnswer(cfg, meta, configIdx, rawQ)
+		return buildMatrixAnswer(cfg, meta, configIdx, rawQ, runtime)
 	case "7": // dropdown
-		return buildChoiceAnswer(cfg, meta, configIdx, optionCount, true, rawQ)
+		return buildChoiceAnswer(cfg, meta, configIdx, optionCount, true, rawQ, runtime)
 	case "1": // text
-		return buildTextAnswer(cfg, meta, configIdx)
+		return buildTextAnswer(cfg, meta, configIdx, runtime)
 	default:
 		return nil
 	}
 }
 
+func tencentQuestionVisible(meta models.SurveyQuestionMeta, actionByNum map[int]TencentAnswerAction) bool {
+	if len(meta.DisplayConditions) == 0 {
+		return !meta.HasDisplayCondition
+	}
+	grouped := make(map[string][]map[string]any)
+	for _, condition := range meta.DisplayConditions {
+		sourceQuestionNum := intFromAny(condition["condition_question_num"])
+		if sourceQuestionNum <= 0 {
+			continue
+		}
+		mode := strings.TrimSpace(fmt.Sprint(condition["condition_mode"]))
+		if mode == "" {
+			mode = "selected"
+		}
+		key := fmt.Sprintf("%d:%s", sourceQuestionNum, mode)
+		grouped[key] = append(grouped[key], condition)
+	}
+	if len(grouped) == 0 {
+		return !meta.HasDisplayCondition
+	}
+	for _, group := range grouped {
+		matched := false
+		for _, condition := range group {
+			if tencentConditionMet(actionByNum, condition) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func tencentConditionMet(actionByNum map[int]TencentAnswerAction, condition map[string]any) bool {
+	sourceQuestionNum := intFromAny(condition["condition_question_num"])
+	if sourceQuestionNum <= 0 {
+		return false
+	}
+	sourceAction, ok := actionByNum[sourceQuestionNum]
+	if !ok {
+		return false
+	}
+
+	mode := strings.TrimSpace(fmt.Sprint(condition["condition_mode"]))
+	if mode == "" {
+		mode = "selected"
+	}
+	conditionIndices := tencentIntSet(condition["condition_option_indices"])
+	selectedIndices := tencentSelectedIndexSet(sourceAction)
+	if len(conditionIndices) == 0 {
+		return mode == "selected"
+	}
+	if mode == "not_selected" {
+		for idx := range conditionIndices {
+			if selectedIndices[idx] {
+				return false
+			}
+		}
+		return true
+	}
+	for idx := range conditionIndices {
+		if selectedIndices[idx] {
+			return true
+		}
+	}
+	return false
+}
+
+func tencentJumpTarget(meta models.SurveyQuestionMeta, action TencentAnswerAction) *int {
+	if len(meta.JumpRules) == 0 {
+		return nil
+	}
+	selectedIndices := tencentSelectedIndexSet(action)
+	var unconditional *int
+	for _, rule := range meta.JumpRules {
+		target := intFromAny(rule["jumpto"])
+		if target <= 0 {
+			continue
+		}
+		optionIndex := intFromAny(rule["option_index"])
+		if raw, ok := rule["option_index"]; !ok || raw == nil {
+			optionIndex = -1
+		}
+		if optionIndex < 0 {
+			if unconditional == nil {
+				targetCopy := target
+				unconditional = &targetCopy
+			}
+			continue
+		}
+		if selectedIndices[optionIndex] {
+			targetCopy := target
+			return &targetCopy
+		}
+	}
+	return unconditional
+}
+
+func tencentSelectedIndexSet(action TencentAnswerAction) map[int]bool {
+	result := make(map[int]bool)
+	if len(action.MatrixIndices) > 0 {
+		for _, idx := range action.MatrixIndices {
+			if idx >= 0 {
+				result[idx] = true
+			}
+		}
+		return result
+	}
+	for _, idx := range action.SelectedIndices {
+		if idx >= 0 {
+			result[idx] = true
+		}
+	}
+	return result
+}
+
+func tencentIntSet(value any) map[int]bool {
+	result := make(map[int]bool)
+	for _, idx := range intSliceFromAny(value) {
+		if idx >= 0 {
+			result[idx] = true
+		}
+	}
+	return result
+}
+
 // TencentAnswerAction represents a Tencent survey answer.
 type TencentAnswerAction struct {
-	QuestionID    string
-	QuestionType  string
-	SelectedIDs   []string
-	SelectedTexts []string
-	TextValue     string
-	MatrixAnswers []TencentMatrixRow
+	QuestionID      string
+	QuestionType    string
+	SelectedIDs     []string
+	SelectedTexts   []string
+	SelectedIndices []int
+	TextValue       string
+	MatrixAnswers   []TencentMatrixRow
+	MatrixIndices   []int
 }
 
 type TencentMatrixRow struct {
-	RowID      string
-	OptionIDs  []string
+	RowID     string
+	OptionIDs []string
 }
 
-func buildChoiceAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, isDropdown bool, rawQ map[string]any) *TencentAnswerAction {
+func buildChoiceAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, isDropdown bool, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
+	if meta.ForcedOptionIndex != nil && *meta.ForcedOptionIndex >= 0 {
+		idx := *meta.ForcedOptionIndex
+		if idx >= optionCount {
+			idx = 0
+		}
+		return &TencentAnswerAction{
+			QuestionID:      meta.ProviderQuestionID,
+			QuestionType:    meta.ProviderType,
+			SelectedIDs:     []string{getOptionIDFromRaw(rawQ, idx)},
+			SelectedIndices: []int{idx},
+		}
+	}
+
 	probs := getProbs(cfg, configIdx, optionCount, isDropdown)
-	idx := questions.WeightedIndex(probs, optionCount)
+	idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 
 	// Get actual option ID from raw data
 	optID := getOptionIDFromRaw(rawQ, idx)
 	return &TencentAnswerAction{
-		QuestionID:   meta.ProviderQuestionID,
-		QuestionType: meta.ProviderType,
-		SelectedIDs:  []string{optID},
+		QuestionID:      meta.ProviderQuestionID,
+		QuestionType:    meta.ProviderType,
+		SelectedIDs:     []string{optID},
+		SelectedIndices: []int{idx},
 	}
 }
 
-func buildMultipleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, rawQ map[string]any) *TencentAnswerAction {
+func buildMultipleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
 	minLimit := 1
 	maxLimit := optionCount
 	if meta.MultiMinLimit != nil {
@@ -615,21 +1217,21 @@ func buildMultipleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestion
 		}
 	}
 
-	numSelect := minLimit + rand.Intn(maxLimit-minLimit+1)
-	selected := questions.WeightedSampleWithoutReplacement(probs, optionCount, numSelect)
+	selected := runtime.ChooseMultiple(meta, configIdx, optionCount, minLimit, maxLimit, probs)
 	ids := make([]string, len(selected))
 	for i, idx := range selected {
 		ids[i] = getOptionIDFromRaw(rawQ, idx)
 	}
 
 	return &TencentAnswerAction{
-		QuestionID:   meta.ProviderQuestionID,
-		QuestionType: meta.ProviderType,
-		SelectedIDs:  ids,
+		QuestionID:      meta.ProviderQuestionID,
+		QuestionType:    meta.ProviderType,
+		SelectedIDs:     ids,
+		SelectedIndices: append([]int{}, selected...),
 	}
 }
 
-func buildScaleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, rawQ map[string]any) *TencentAnswerAction {
+func buildScaleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.ScaleProb) {
 		if p, ok := toFloat64Slice(cfg.ScaleProb[configIdx]); ok {
@@ -642,16 +1244,17 @@ func buildScaleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 		}
 	}
 
-	idx := questions.WeightedIndex(probs, optionCount)
+	idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 	optID := getOptionIDFromRaw(rawQ, idx)
 	return &TencentAnswerAction{
-		QuestionID:   meta.ProviderQuestionID,
-		QuestionType: meta.ProviderType,
-		SelectedIDs:  []string{optID},
+		QuestionID:      meta.ProviderQuestionID,
+		QuestionType:    meta.ProviderType,
+		SelectedIDs:     []string{optID},
+		SelectedIndices: []int{idx},
 	}
 }
 
-func buildMatrixAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, rawQ map[string]any) *TencentAnswerAction {
+func buildMatrixAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
 	rows := meta.Rows
 	if rows <= 0 {
 		rows = 1
@@ -661,36 +1264,40 @@ func buildMatrixAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 		optionCount = 1
 	}
 
-	// Get raw sub_titles for option ID lookup
-	subsRaw, _ := rawQ["sub_titles"].([]any)
-
 	var matrixAnswers []TencentMatrixRow
+	var matrixIndices []int
 	for i := 0; i < rows; i++ {
 		probs := make([]float64, optionCount)
 		if configIdx >= 0 && configIdx < len(cfg.MatrixProb) {
-			if p, ok := toFloat64Slice(cfg.MatrixProb[configIdx]); ok {
-				copy(probs, p)
-			}
+			copy(probs, matrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
 		}
 		if allZero(probs) {
 			for j := range probs {
 				probs[j] = 1.0
 			}
 		}
-		idx := questions.WeightedIndex(probs, optionCount)
+		rowIndex := i
+		idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, &rowIndex)
 
-		// Get actual option ID from raw sub_titles
-		optID := getSubOptionIDFromRaw(subsRaw, i, idx)
+		optID := getOptionIDFromRaw(rawQ, idx)
+		rowID := fmt.Sprintf("%d", i+1)
+		if sub := getMatrixRowRaw(rawQ, i); sub != nil {
+			if id := getString(sub, "id"); id != "" {
+				rowID = id
+			}
+		}
 		matrixAnswers = append(matrixAnswers, TencentMatrixRow{
-			RowID:     fmt.Sprintf("%d", i+1),
+			RowID:     rowID,
 			OptionIDs: []string{optID},
 		})
+		matrixIndices = append(matrixIndices, idx)
 	}
 
 	return &TencentAnswerAction{
 		QuestionID:    meta.ProviderQuestionID,
 		QuestionType:  meta.ProviderType,
 		MatrixAnswers: matrixAnswers,
+		MatrixIndices: matrixIndices,
 	}
 }
 
@@ -711,32 +1318,24 @@ func getOptionIDFromRaw(rawQ map[string]any, idx int) string {
 	return fmt.Sprintf("%d", idx+1)
 }
 
-// getSubOptionIDFromRaw extracts option ID from matrix sub_titles.
-func getSubOptionIDFromRaw(subsRaw []any, rowIndex, optIndex int) string {
-	if rowIndex >= len(subsRaw) {
-		return fmt.Sprintf("%d", optIndex+1)
+func getMatrixRowRaw(rawQ map[string]any, rowIndex int) map[string]any {
+	if rawQ == nil {
+		return nil
 	}
-	subMap, ok := subsRaw[rowIndex].(map[string]any)
-	if !ok {
-		return fmt.Sprintf("%d", optIndex+1)
+	subsRaw, ok := rawQ["sub_titles"].([]any)
+	if !ok || rowIndex < 0 || rowIndex >= len(subsRaw) {
+		return nil
 	}
-	optsRaw, ok := subMap["options"].([]any)
-	if !ok || optIndex >= len(optsRaw) {
-		return fmt.Sprintf("%d", optIndex+1)
-	}
-	if optMap, ok := optsRaw[optIndex].(map[string]any); ok {
-		if id := getString(optMap, "id"); id != "" {
-			return id
-		}
-	}
-	return fmt.Sprintf("%d", optIndex+1)
+	subMap, _ := subsRaw[rowIndex].(map[string]any)
+	return subMap
 }
 
-func buildTextAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) *TencentAnswerAction {
+func buildTextAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) *TencentAnswerAction {
 	text := "满意"
-	if configIdx >= 0 && configIdx < len(cfg.Texts) && len(cfg.Texts[configIdx]) > 0 {
-		text = cfg.Texts[configIdx][rand.Intn(len(cfg.Texts[configIdx]))]
+	if candidate, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+		text = candidate
 	}
+	text = runtime.GenerateText(meta, configIdx, text, 1)
 	return &TencentAnswerAction{
 		QuestionID:   meta.ProviderQuestionID,
 		QuestionType: meta.ProviderType,
@@ -801,10 +1400,14 @@ func buildSubmitBody(surveyID, hashValue string, rawQuestions []map[string]any, 
 		case "matrix_radio", "matrix_check":
 			var subTitles []map[string]any
 			subsRaw, _ := rq["sub_titles"].([]any)
+			topLevelOptions, _ := rq["options"].([]any)
 			for i, sub := range subsRaw {
 				if subMap, ok := sub.(map[string]any); ok {
 					// Build ALL options for this row (matching Python behavior)
 					subOptsRaw, _ := subMap["options"].([]any)
+					if len(subOptsRaw) == 0 {
+						subOptsRaw = topLevelOptions
+					}
 					var subOpts []map[string]any
 					for _, subOpt := range subOptsRaw {
 						if subOptMap, ok := subOpt.(map[string]any); ok {
@@ -893,6 +1496,19 @@ func parseConfigIdx(s string) int {
 	return idx
 }
 
+func providerConfigIndex(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta) (string, bool) {
+	if cfg == nil || meta.ProviderQuestionID == "" {
+		return "", false
+	}
+	if key := models.MakeProviderQuestionKey(meta.Provider, meta.ProviderPageID, meta.ProviderQuestionID); key != "" {
+		if idx, ok := cfg.ProviderQuestionConfigIndexMap[key]; ok {
+			return idx, true
+		}
+	}
+	idx, ok := cfg.ProviderQuestionConfigIndexMap[meta.ProviderQuestionID]
+	return idx, ok
+}
+
 func allZero(probs []float64) bool {
 	for _, p := range probs {
 		if p != 0 {
@@ -912,13 +1528,27 @@ func toFloat64Slice(v any) ([]float64, bool) {
 	case []any:
 		result := make([]float64, 0, len(sl))
 		for _, item := range sl {
-			if f, ok := item.(float64); ok {
+			if f, ok := toFloat64(item); ok {
 				result = append(result, f)
 			}
 		}
 		return result, true
 	}
 	return nil, false
+}
+
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
 }
 
 func getProbs(cfg *models.ExecutionConfig, configIdx, optionCount int, isDropdown bool) []float64 {
@@ -938,6 +1568,51 @@ func getProbs(cfg *models.ExecutionConfig, configIdx, optionCount int, isDropdow
 		}
 	}
 	return probs
+}
+
+func matrixRowProbabilities(raw any, rowIndex, optionCount int) []float64 {
+	probs := make([]float64, optionCount)
+	switch sl := raw.(type) {
+	case [][]float64:
+		if rowIndex < len(sl) {
+			copy(probs, sl[rowIndex])
+		}
+	case []any:
+		if rowIndex < len(sl) {
+			if row, ok := toFloat64Slice(sl[rowIndex]); ok {
+				copy(probs, row)
+			}
+			break
+		}
+		if row, ok := toFloat64Slice(sl); ok {
+			copy(probs, row)
+		}
+	default:
+		if row, ok := toFloat64Slice(raw); ok {
+			copy(probs, row)
+		}
+	}
+	return probs
+}
+
+func sampleAnswerDurationSeconds(cfg *models.ExecutionConfig) int {
+	if cfg != nil {
+		min := cfg.AnswerDurationRangeSeconds[0]
+		max := cfg.AnswerDurationRangeSeconds[1]
+		if min > 0 || max > 0 {
+			if min < 0 {
+				min = 0
+			}
+			if max < min {
+				max = min
+			}
+			if max == min {
+				return max
+			}
+			return min + rand.Intn(max-min+1)
+		}
+	}
+	return 60
 }
 
 func parseProxy(addr string) *string {

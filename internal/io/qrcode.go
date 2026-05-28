@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/SurveyController/SurveyConsole/internal/providers"
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"
 )
@@ -53,18 +54,7 @@ func decodeQRFromImage(img image.Image) (string, error) {
 
 // IsSurveyURL checks if a decoded QR text looks like a survey URL.
 func IsSurveyURL(text string) bool {
-	lower := strings.ToLower(text)
-	surveyDomains := []string{
-		"wjx.cn",
-		"wj.qq.com",
-		"credamo.com",
-	}
-	for _, domain := range surveyDomains {
-		if strings.Contains(lower, domain) {
-			return true
-		}
-	}
-	return false
+	return providers.IsSupportedSurveyURL(text)
 }
 
 // DecodeSurveyURLFromFile reads a QR code image and extracts a survey URL.

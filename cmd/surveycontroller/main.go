@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/SurveyController/SurveyConsole/internal/config"
@@ -78,11 +80,15 @@ func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	configPath := fs.String("config", "", "配置文件路径 (JSON)")
 	urlFlag := fs.String("url", "", "问卷链接")
-	targetFlag := fs.Int("target", 1, "目标提交份数")
-	threadsFlag := fs.Int("threads", 1, "并发线程数")
+	targetFlag := fs.Int("target", 0, "目标提交份数")
+	threadsFlag := fs.Int("threads", 0, "并发线程数")
 	randomIPFlag := fs.Bool("random-ip", false, "启用随机 IP")
-	proxySourceFlag := fs.String("proxy-source", "default", "代理源 (default/benefit/custom)")
+	proxySourceFlag := fs.String("proxy-source", "", "代理源 (default/benefit/custom)")
 	customProxyFlag := fs.String("custom-proxy", "", "自定义代理 API URL")
+	proxyAreaFlag := fs.String("proxy-area", "", "官方随机 IP 地区编码")
+	randomIPUserIDFlag := fs.Int("random-ip-user-id", 0, "官方随机 IP 用户 ID")
+	randomIPDeviceIDFlag := fs.String("random-ip-device-id", "", "官方随机 IP 设备 ID")
+	ipExtractEndpointFlag := fs.String("ip-extract-endpoint", "", "官方随机 IP 提取接口")
 	verboseFlag := fs.Bool("verbose", false, "详细日志")
 	fs.Parse(args)
 
@@ -127,6 +133,10 @@ func cmdRun(args []string) {
 		cfg.CustomProxyAPI = *customProxyFlag
 		cfg.ProxySource = "custom"
 	}
+	if *proxyAreaFlag != "" {
+		area := *proxyAreaFlag
+		cfg.ProxyAreaCode = &area
+	}
 
 	config.MergeDefaults(cfg)
 
@@ -163,14 +173,28 @@ func cmdRun(args []string) {
 	cfg.SurveyProvider = def.Provider
 
 	// Build execution config
-	execCfg := config.BuildExecutionConfig(cfg, def.Questions)
+	execCfg, err := config.BuildExecutionConfigWithError(cfg, def.Questions)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "准备执行配置失败: %v\n", err)
+		os.Exit(1)
+	}
 	state := models.NewExecutionState()
 	state.Config = execCfg
 
 	// Create proxy pool if needed
 	var pool *proxy.Pool
 	if cfg.RandomIPEnabled {
-		pool = proxy.NewPool(cfg.ProxySource, cfg.CustomProxyAPI)
+		areaCode := ""
+		if cfg.ProxyAreaCode != nil {
+			areaCode = *cfg.ProxyAreaCode
+		}
+		pool = proxy.NewPool(
+			cfg.ProxySource,
+			cfg.CustomProxyAPI,
+			proxy.WithOfficialAreaCode(areaCode),
+			proxy.WithOfficialCredentials(*randomIPUserIDFlag, *randomIPDeviceIDFlag),
+			proxy.WithOfficialEndpoint(*ipExtractEndpointFlag),
+		)
 		fmt.Println("随机 IP 已启用")
 	}
 
@@ -231,8 +255,19 @@ func cmdParse(args []string) {
 	}
 
 	if *outputFlag != "" {
-		data, _ := fmt.Printf("%+v\n", def)
-		_ = data
+		data, err := json.MarshalIndent(def, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "序列化结果失败: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.MkdirAll(filepath.Dir(*outputFlag), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "创建输出目录失败: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(*outputFlag, data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "保存结果失败: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Printf("\n结果已保存到: %s\n", *outputFlag)
 	}
 }
@@ -248,6 +283,20 @@ func cmdConfig(args []string) {
 		cfg := models.NewDefaultRuntimeConfig()
 		if *urlFlag != "" {
 			cfg.URL = *urlFlag
+			ctx := context.Background()
+			registry := providers.Default()
+			e := engine.NewEngine(registry, nil, nil)
+			fmt.Printf("正在解析问卷: %s\n", cfg.URL)
+			def, err := e.ParseSurvey(ctx, cfg.URL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "解析问卷失败: %v\n", err)
+				os.Exit(1)
+			}
+			cfg.SurveyTitle = def.Title
+			cfg.SurveyProvider = def.Provider
+			cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
+			cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
+			fmt.Printf("解析成功: %s (%d 题)，已生成 %d 条默认题目配置\n", def.Title, len(def.Questions), len(cfg.QuestionEntries))
 		}
 		if err := config.SaveFile(&cfg, *outputFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)

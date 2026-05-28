@@ -19,18 +19,18 @@ import (
 )
 
 const (
-	ProviderName  = "credamo"
-	defaultUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-	signCipher    = "P96D0A7D0M8C3R2D0M1"
-	apiOrigin     = "https://www.credamo.com"
+	ProviderName = "credamo"
+	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	signCipher   = "P96D0A7D0M8C3R2D0M1"
+	apiOrigin    = "https://www.credamo.com"
 )
 
-var shortURLRe = regexp.MustCompile(`/([A-Za-z0-9_-]+)\s*$`)
+var shortURLRe = regexp.MustCompile(`(?i)(?:^|/)([A-Za-z0-9_-]+)/?$`)
 
 // Provider implements the Credamo survey provider.
 type Provider struct{}
 
-func NewProvider() *Provider { return &Provider{} }
+func NewProvider() *Provider             { return &Provider{} }
 func (p *Provider) ProviderName() string { return ProviderName }
 
 // ParseSurvey fetches and parses a Credamo survey.
@@ -46,7 +46,7 @@ func (p *Provider) ParseSurvey(ctx context.Context, surveyURL string) (*models.S
 	}
 
 	title := getString(detail, "title")
-	rawQuestions := getArray(detail, "questions")
+	rawQuestions := iterRawQuestions(detail)
 
 	normalized := standardizeQuestions(rawQuestions)
 
@@ -74,7 +74,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 		return false, fmt.Errorf("获取详情失败: %w", err)
 	}
 
-	rawQuestions := getArray(detail, "questions")
+	rawQuestions := iterRawQuestions(detail)
 
 	// Init answer session
 	initData, err := initAnswer(ctx, shortURL)
@@ -83,11 +83,11 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	}
 
 	// Build actions
-	actions := buildAnswerActions(cfg, state)
+	actions := buildAnswerActions(cfg, state, opts.ThreadName)
 
 	// Build submit body
-	startTimeMS := time.Now().UnixMilli() - int64(10+rand.Intn(20))*1000
-	duration := 10 + rand.Intn(20)
+	duration := sampleAnswerDurationSeconds(cfg)
+	startTimeMS := time.Now().UnixMilli() - int64(duration)*1000
 	ua := opts.UserAgent
 	if ua == "" {
 		ua = defaultUA
@@ -104,20 +104,46 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 }
 
 func extractShortURL(surveyURL string) string {
-	matches := shortURLRe.FindStringSubmatch(surveyURL)
-	if len(matches) >= 2 {
-		return matches[1]
+	text := strings.TrimSpace(surveyURL)
+	if text == "" {
+		return ""
 	}
-	// Try parsing as URL
-	u, err := url.Parse(surveyURL)
+	parseText := text
+	if !strings.Contains(parseText, "://") {
+		parseText = "https://" + parseText
+	}
+	u, err := url.Parse(parseText)
 	if err != nil {
 		return ""
 	}
-	parts := strings.Split(strings.TrimRight(u.Path, "/"), "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
+
+	fragmentPath := strings.TrimRight(u.Fragment, "/")
+	if strings.HasPrefix(strings.ToLower(fragmentPath), "/s/") {
+		if id := lastPathSegment(fragmentPath); id != "" {
+			return id
+		}
+	}
+
+	path := strings.TrimRight(u.Path, "/")
+	if strings.HasPrefix(strings.ToLower(path), "/s/") {
+		return lastPathSegment(path)
+	}
+	if strings.EqualFold(path, "/answer.html") {
+		return ""
+	}
+
+	if matches := shortURLRe.FindStringSubmatch(path); len(matches) >= 2 {
+		return matches[1]
 	}
 	return ""
+}
+
+func lastPathSegment(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
 }
 
 func fetchDetail(ctx context.Context, shortURL string) (map[string]any, error) {
@@ -179,14 +205,14 @@ func saveAnswers(ctx context.Context, shortURL, answerToken, timeCode string, bo
 	bodyBytes, _ := json.Marshal(body)
 
 	resp, err := httpclient.Post(ctx, saveURL, string(bodyBytes), map[string]string{
-		"User-Agent":  ua,
+		"User-Agent":   ua,
 		"Content-Type": "application/json",
-		"Origin":      apiOrigin,
-		"Referer":     fmt.Sprintf("%s/s/%s", apiOrigin, shortURL),
-		"unionId":     unionID,
-		"nonce":       nonce,
-		"timestamp":   timestamp,
-		"signature":   signature,
+		"Origin":       apiOrigin,
+		"Referer":      fmt.Sprintf("%s/s/%s", apiOrigin, shortURL),
+		"unionId":      unionID,
+		"nonce":        nonce,
+		"timestamp":    timestamp,
+		"signature":    signature,
 	}, proxyAddr, 20*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("提交失败: %w", err)
@@ -214,22 +240,25 @@ func computeSignature(token, nonce, timestamp, unionID string) string {
 	// Inner hash: SHA1(token + nonce + timestamp + unionID + cipher)
 	innerInput := token + nonce + timestamp + unionID + signCipher
 	innerHash := sha1.Sum([]byte(innerInput))
-	innerHex := hex.EncodeToString(innerHash[:])
+	innerHex := strings.ToUpper(hex.EncodeToString(innerHash[:]))
 
 	// Outer hash: SHA1(token + nonce + timestamp + innerHex + unionID + cipher)
 	outerInput := token + nonce + timestamp + innerHex + unionID + signCipher
 	outerHash := sha1.Sum([]byte(outerInput))
-	return hex.EncodeToString(outerHash[:])
+	return strings.ToUpper(hex.EncodeToString(outerHash[:]))
 }
 
 // Type code mapping
 var credamoTypeMap = map[string]string{
 	"single_choice":   "3",
+	"single":          "3",
 	"multiple_choice": "4",
+	"multiple":        "4",
 	"scale":           "5",
 	"matrix":          "6",
 	"dropdown":        "7",
 	"ordering":        "11",
+	"order":           "11",
 	"text":            "1",
 	"textarea":        "1",
 	"description":     "0",
@@ -240,19 +269,20 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 	num := 1
 
 	for _, q := range raw {
-		providerType := getString(q, "question_kind")
-		if providerType == "" {
-			providerType = getString(q, "type")
-		}
+		providerType := rawQuestionKind(q)
 		typeCode := credamoTypeMap[providerType]
 		if typeCode == "" {
 			typeCode = "1"
 		}
 
-		title := getString(q, "title")
-		questionID := getString(q, "id")
+		questionNum := rawQuestionNum(q, num)
+		title := firstString(q, "title", "qstTitle", "qstName", "questionTitle", "questionName", "display", "content", "name")
+		if title == "" {
+			title = fmt.Sprintf("Q%d", questionNum)
+		}
+		questionID := rawQuestionID(q)
 		if questionID == "" {
-			questionID = fmt.Sprintf("%d", num)
+			questionID = fmt.Sprintf("%d", questionNum)
 		}
 
 		optionTexts := extractOptionTexts(q)
@@ -260,7 +290,7 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 
 		// Extract forced option
 		var forcedIdx *int
-		forceIdx := extractForceSelect(title, optionTexts)
+		forceIdx, forcedText := extractForceSelect(title, optionTexts)
 		if forceIdx >= 0 {
 			forcedIdx = &forceIdx
 		}
@@ -270,20 +300,25 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 
 		// Row texts for matrix
 		rowTexts := extractRowTexts(q)
+		rows := len(rowTexts)
+		if typeCode == "6" && rows <= 0 {
+			rows = 1
+		}
 
 		qm := models.SurveyQuestionMeta{
-			Num:                num,
+			Num:                questionNum,
 			Title:              title,
 			TypeCode:           typeCode,
 			Options:            options,
 			OptionTexts:        optionTexts,
-			Rows:               len(rowTexts),
+			Rows:               rows,
 			RowTexts:           rowTexts,
 			Page:               1,
 			Provider:           ProviderName,
 			ProviderQuestionID: questionID,
 			ProviderType:       providerType,
 			ForcedOptionIndex:  forcedIdx,
+			ForcedOptionText:   forcedText,
 		}
 
 		if minLimit != nil {
@@ -307,49 +342,85 @@ func standardizeQuestions(raw []map[string]any) []models.SurveyQuestionMeta {
 }
 
 func extractOptionTexts(q map[string]any) []string {
-	if optsRaw, ok := q["options"].([]any); ok {
-		var texts []string
-		for _, opt := range optsRaw {
-			if optMap, ok := opt.(map[string]any); ok {
-				text := getString(optMap, "text")
-				if text == "" {
-					text = getString(optMap, "label")
-				}
-				if text != "" {
-					texts = append(texts, text)
-				}
-			}
-		}
-		return texts
+	source := "options"
+	if rawQuestionType(q) == 4 {
+		source = "answers"
 	}
-	return nil
+	items := getArray(q, source)
+	if len(items) == 0 && source != "choices" {
+		items = getArray(q, "choices")
+	}
+	var texts []string
+	for idx, opt := range items {
+		text := choiceText(opt)
+		if text == "" {
+			text = fmt.Sprintf("选项 %d", idx+1)
+		}
+		texts = append(texts, text)
+	}
+	return texts
 }
 
 func extractRowTexts(q map[string]any) []string {
 	var rows []string
-	if subsRaw, ok := q["sub_questions"].([]any); ok {
-		for _, sub := range subsRaw {
-			if subMap, ok := sub.(map[string]any); ok {
-				if text := getString(subMap, "text"); text != "" {
-					rows = append(rows, text)
-				}
-			}
+	items := getArray(q, "sub_questions")
+	if rawQuestionType(q) == 4 {
+		items = getArray(q, "choices")
+	}
+	for idx, sub := range items {
+		text := choiceText(sub)
+		if text == "" && rawQuestionType(q) == 4 {
+			text = fmt.Sprintf("第 %d 行", idx+1)
+		}
+		if text != "" {
+			rows = append(rows, text)
 		}
 	}
 	return rows
 }
 
-func extractForceSelect(title string, optionTexts []string) int {
+func iterRawQuestions(detail map[string]any) []map[string]any {
+	result := append([]map[string]any{}, getArray(detail, "questions")...)
+	for _, block := range getArray(detail, "blocks") {
+		elements := getArray(block, "blockElements")
+		if len(elements) == 0 {
+			elements = getArray(block, "elements")
+		}
+		for _, element := range elements {
+			candidates := []any{element["question"], element["qst"], element["surveyQuestion"], element}
+			for _, candidate := range candidates {
+				candidateMap, ok := candidate.(map[string]any)
+				if !ok {
+					continue
+				}
+				if rawQuestionID(candidateMap) != "" || rawQuestionType(candidateMap) > 0 {
+					result = append(result, candidateMap)
+					break
+				}
+			}
+		}
+	}
+	return result
+}
+
+func extractForceSelect(title string, optionTexts []string) (int, string) {
+	compactTitle := strings.ReplaceAll(title, " ", "")
+	for i, opt := range optionTexts {
+		text := strings.TrimSpace(opt)
+		if text != "" && strings.Contains(compactTitle, strings.ReplaceAll(text, " ", "")) {
+			return i, text
+		}
+	}
 	re := regexp.MustCompile(`请(选择|勾选)\s*([A-Z])`)
 	if match := re.FindStringSubmatch(title); match != nil {
 		letter := match[2]
 		for i, opt := range optionTexts {
 			if strings.HasPrefix(strings.ToUpper(opt), letter) {
-				return i
+				return i, opt
 			}
 		}
 	}
-	return -1
+	return -1, ""
 }
 
 func extractMultiSelectLimits(title string, optionCount int) (*int, *int) {
@@ -382,10 +453,11 @@ func extractMultiSelectLimits(title string, optionCount int) (*int, *int) {
 	return minLimit, maxLimit
 }
 
-func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState) []CredamoAnswerAction {
+func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState, threadName string) []CredamoAnswerAction {
+	runtime := questions.NewRunContextForThread(cfg, state, threadName)
 	var actions []CredamoAnswerAction
 	for _, meta := range sortedQuestions(cfg) {
-		action := buildSingleAction(cfg, meta)
+		action := buildSingleAction(cfg, meta, runtime)
 		if action != nil {
 			actions = append(actions, *action)
 		}
@@ -410,15 +482,15 @@ func sortedQuestions(cfg *models.ExecutionConfig) []models.SurveyQuestionMeta {
 
 // CredamoAnswerAction represents a Credamo survey answer.
 type CredamoAnswerAction struct {
-	QuestionID     string
-	QuestionType   string
+	QuestionID      string
+	QuestionType    string
 	SelectedIndices []int
-	TextValue      string
-	MatrixAnswers  [][]int
-	OrderIndices   []int
+	TextValue       string
+	MatrixAnswers   [][]int
+	OrderIndices    []int
 }
 
-func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta) *CredamoAnswerAction {
+func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, runtime *questions.RunContext) *CredamoAnswerAction {
 	typeCode := meta.TypeCode
 	optionCount := meta.Options
 	if optionCount <= 0 {
@@ -428,29 +500,43 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	configIdx := -1
 	if idx, ok := cfg.QuestionConfigIndexMap[meta.Num]; ok {
 		configIdx = parseConfigIdx(idx)
+	} else if idx, ok := providerConfigIndex(cfg, meta); ok {
+		configIdx = parseConfigIdx(idx)
 	}
 
 	switch typeCode {
 	case "3": // single
-		return buildChoiceAction(cfg, meta, configIdx, optionCount)
+		return buildChoiceAction(cfg, meta, configIdx, optionCount, runtime)
 	case "4": // multiple
-		return buildMultipleAction(cfg, meta, configIdx, optionCount)
+		return buildMultipleAction(cfg, meta, configIdx, optionCount, runtime)
 	case "5": // scale
-		return buildScaleAction(cfg, meta, configIdx, optionCount)
+		return buildScaleAction(cfg, meta, configIdx, optionCount, runtime)
 	case "6": // matrix
-		return buildMatrixAction(cfg, meta, configIdx)
+		return buildMatrixAction(cfg, meta, configIdx, runtime)
 	case "7": // dropdown
-		return buildChoiceAction(cfg, meta, configIdx, optionCount)
+		return buildChoiceAction(cfg, meta, configIdx, optionCount, runtime)
 	case "11": // order
 		return buildOrderAction(meta, optionCount)
 	case "1": // text
-		return buildTextAction(cfg, meta, configIdx)
+		return buildTextAction(cfg, meta, configIdx, runtime)
 	default:
 		return nil
 	}
 }
 
-func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int) *CredamoAnswerAction {
+func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, runtime *questions.RunContext) *CredamoAnswerAction {
+	if meta.ForcedOptionIndex != nil && *meta.ForcedOptionIndex >= 0 {
+		idx := *meta.ForcedOptionIndex
+		if idx >= optionCount {
+			idx = 0
+		}
+		return &CredamoAnswerAction{
+			QuestionID:      meta.ProviderQuestionID,
+			QuestionType:    meta.ProviderType,
+			SelectedIndices: []int{idx},
+		}
+	}
+
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.SingleProb) {
 		if p, ok := toFloat64Slice(cfg.SingleProb[configIdx]); ok {
@@ -463,7 +549,7 @@ func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 		}
 	}
 
-	idx := questions.WeightedIndex(probs, optionCount)
+	idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 	return &CredamoAnswerAction{
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
@@ -471,7 +557,7 @@ func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	}
 }
 
-func buildMultipleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int) *CredamoAnswerAction {
+func buildMultipleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, runtime *questions.RunContext) *CredamoAnswerAction {
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.MultipleProb) {
 		copy(probs, cfg.MultipleProb[configIdx])
@@ -482,17 +568,15 @@ func buildMultipleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestion
 		}
 	}
 
-	// Select options with positive weight
-	var selected []int
-	for i, p := range probs[:optionCount] {
-		if p > 0 {
-			selected = append(selected, i)
-		}
+	minLimit := 1
+	maxLimit := optionCount
+	if meta.MultiMinLimit != nil {
+		minLimit = *meta.MultiMinLimit
 	}
-	if len(selected) == 0 {
-		// Random single selection
-		selected = []int{rand.Intn(optionCount)}
+	if meta.MultiMaxLimit != nil {
+		maxLimit = *meta.MultiMaxLimit
 	}
+	selected := runtime.ChooseMultiple(meta, configIdx, optionCount, minLimit, maxLimit, probs)
 
 	return &CredamoAnswerAction{
 		QuestionID:      meta.ProviderQuestionID,
@@ -501,7 +585,7 @@ func buildMultipleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestion
 	}
 }
 
-func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int) *CredamoAnswerAction {
+func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, runtime *questions.RunContext) *CredamoAnswerAction {
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.ScaleProb) {
 		if p, ok := toFloat64Slice(cfg.ScaleProb[configIdx]); ok {
@@ -514,7 +598,7 @@ func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 		}
 	}
 
-	idx := questions.WeightedIndex(probs, optionCount)
+	idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 	return &CredamoAnswerAction{
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
@@ -522,7 +606,7 @@ func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 	}
 }
 
-func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) *CredamoAnswerAction {
+func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) *CredamoAnswerAction {
 	rows := meta.Rows
 	if rows <= 0 {
 		rows = 1
@@ -536,16 +620,15 @@ func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	for i := 0; i < rows; i++ {
 		probs := make([]float64, optionCount)
 		if configIdx >= 0 && configIdx < len(cfg.MatrixProb) {
-			if p, ok := toFloat64Slice(cfg.MatrixProb[configIdx]); ok {
-				copy(probs, p)
-			}
+			copy(probs, matrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
 		}
 		if allZero(probs) {
 			for j := range probs {
 				probs[j] = 1.0
 			}
 		}
-		idx := questions.WeightedIndex(probs, optionCount)
+		rowIndex := i
+		idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, &rowIndex)
 		matrixAnswers = append(matrixAnswers, []int{idx})
 	}
 
@@ -573,11 +656,12 @@ func buildOrderAction(meta models.SurveyQuestionMeta, optionCount int) *CredamoA
 	}
 }
 
-func buildTextAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) *CredamoAnswerAction {
+func buildTextAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) *CredamoAnswerAction {
 	text := "满意"
-	if configIdx >= 0 && configIdx < len(cfg.Texts) && len(cfg.Texts[configIdx]) > 0 {
-		text = cfg.Texts[configIdx][rand.Intn(len(cfg.Texts[configIdx]))]
+	if candidate, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+		text = candidate
 	}
+	text = runtime.GenerateText(meta, configIdx, text, 1)
 	return &CredamoAnswerAction{
 		QuestionID:   meta.ProviderQuestionID,
 		QuestionType: meta.ProviderType,
@@ -593,17 +677,14 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 
 	// Per-question timing: distribute duration evenly
 	perQuestionMS := int64(0)
-	if len(rawQuestions) > 0 {
-		perQuestionMS = int64(duration) * 1000 / int64(len(rawQuestions))
+	if len(actions) > 0 {
+		perQuestionMS = int64(duration) * 1000 / int64(len(actions))
 	}
 
 	var qstList []map[string]any
 	for _, rq := range rawQuestions {
-		qID := getString(rq, "id")
-		qType := getString(rq, "question_kind")
-		if qType == "" {
-			qType = getString(rq, "type")
-		}
+		qID := rawQuestionID(rq)
+		qType := rawQuestionKind(rq)
 
 		action, ok := actionMap[qID]
 		if !ok {
@@ -611,25 +692,30 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 		}
 
 		qst := map[string]any{
-			"questionId": qID,
-			"type":       qType,
-			"answerTime": perQuestionMS,
+			"qstId":         normalizeID(qID),
+			"answerTime":    perQuestionMS,
+			"answerContent": "",
+		}
+		if rawQuestionType(rq) == 2 && rawSelector(rq) > 0 {
+			qst["questionType"] = 2
+			qst["subSelector"] = rawSelector(rq)
 		}
 
 		// Get raw options for building proper answer format
-		rawOptions := getArray(rq, "options")
-		rawSubs := getArray(rq, "sub_questions")
+		rawOptions := rawChoiceOptions(rq)
+		rawRows := rawMatrixRows(rq)
+		rawColumns := rawMatrixColumns(rq)
 
 		switch typeCodeForKind(qType) {
 		case "3", "5", "7": // single/scale/dropdown
 			if len(action.SelectedIndices) > 0 {
 				idx := action.SelectedIndices[0]
+				if forced := forcedChoiceIndex(cfg, qID, rawOptions); forced >= 0 {
+					idx = forced
+				}
 				if idx < len(rawOptions) {
 					opt := rawOptions[idx]
-					qst["answerQstChoice"] = map[string]any{
-						"choiceId":      getString(opt, "id"),
-						"choiceContent": getString(opt, "text"),
-					}
+					qst["answerQstChoice"] = choicePayload(opt)
 				}
 			}
 		case "4": // multiple
@@ -637,39 +723,45 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 			for _, idx := range action.SelectedIndices {
 				if idx < len(rawOptions) {
 					opt := rawOptions[idx]
-					choiceList = append(choiceList, map[string]any{
-						"choiceId":      getString(opt, "id"),
-						"choiceContent": getString(opt, "text"),
-					})
+					choiceList = append(choiceList, choicePayload(opt))
 				}
 			}
 			qst["answerQstChoiceList"] = choiceList
 		case "6": // matrix
 			var choiceList []map[string]any
 			for rowIdx, colIndices := range action.MatrixAnswers {
-				if rowIdx < len(rawSubs) {
-					sub := rawSubs[rowIdx]
-					subOptions := getArray(sub, "options")
+				if rowIdx < len(rawRows) {
+					row := rawRows[rowIdx]
+					subOptions := getArray(row, "options")
+					if len(subOptions) == 0 {
+						subOptions = rawColumns
+					}
+					var answerList []map[string]any
 					for _, colIdx := range colIndices {
 						if colIdx < len(subOptions) {
 							opt := subOptions[colIdx]
-							choiceList = append(choiceList, map[string]any{
-								"choiceId":      getString(opt, "id"),
-								"choiceContent": getString(opt, "text"),
+							answerList = append(answerList, map[string]any{
+								"answerId": choiceID(opt, "answerId", "id", "choiceId"),
 							})
 						}
+					}
+					if len(answerList) > 0 {
+						choiceList = append(choiceList, map[string]any{
+							"choiceId":         choiceID(row, "choiceId", "id"),
+							"choiceAnswerList": answerList,
+						})
 					}
 				}
 			}
 			qst["answerQstChoiceList"] = choiceList
 		case "11": // order
 			var choiceList []map[string]any
-			for _, idx := range action.OrderIndices {
+			for rank, idx := range action.OrderIndices {
 				if idx < len(rawOptions) {
 					opt := rawOptions[idx]
 					choiceList = append(choiceList, map[string]any{
-						"choiceId":      getString(opt, "id"),
-						"choiceContent": getString(opt, "text"),
+						"choiceId":      choiceID(opt, "choiceId", "id"),
+						"choiceContent": rank + 1,
 					})
 				}
 			}
@@ -693,16 +785,204 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 }
 
 func typeCodeForKind(kind string) string {
-	return credamoTypeMap[kind]
+	if code := credamoTypeMap[strings.ToLower(strings.TrimSpace(kind))]; code != "" {
+		return code
+	}
+	return credamoTypeMap[rawQuestionKind(map[string]any{"questionType": kind})]
 }
 
 // Helpers
 
-func getString(m map[string]any, key string) string {
-	if v, ok := m[key].(string); ok {
-		return v
+func rawQuestionID(m map[string]any) string {
+	return firstString(m, "id", "questionId", "qstId")
+}
+
+func rawQuestionNum(m map[string]any, fallback int) int {
+	for _, key := range []string{"qstNo", "questionNo", "qstNum", "sortNo"} {
+		match := regexp.MustCompile(`\d+`).FindString(valueString(m[key]))
+		if match != "" {
+			if num, err := strconv.Atoi(match); err == nil && num > 0 {
+				return num
+			}
+		}
+	}
+	return fallback
+}
+
+func rawQuestionType(m map[string]any) int {
+	return toInt(m["questionType"])
+}
+
+func rawSelector(m map[string]any) int {
+	return toInt(m["selector"])
+}
+
+func rawQuestionKind(m map[string]any) string {
+	if kind := strings.ToLower(strings.TrimSpace(firstString(m, "question_kind", "provider_type", "type"))); kind != "" {
+		return kind
+	}
+	questionType := rawQuestionType(m)
+	selector := rawSelector(m)
+	switch {
+	case questionType == 2 && selector == 2:
+		return "multiple"
+	case questionType == 2 && selector == 3:
+		return "dropdown"
+	case questionType == 2:
+		return "single"
+	case questionType == 4:
+		return "matrix"
+	case questionType == 6:
+		return "order"
+	case questionType == 11:
+		return "scale"
+	case questionType == 1:
+		return "text"
 	}
 	return ""
+}
+
+func firstString(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if s := strings.TrimSpace(valueString(m[key])); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func valueString(v any) string {
+	switch value := v.(type) {
+	case string:
+		return value
+	case fmt.Stringer:
+		return value.String()
+	case int:
+		return strconv.Itoa(value)
+	case int64:
+		return strconv.FormatInt(value, 10)
+	case float64:
+		if value == float64(int64(value)) {
+			return strconv.FormatInt(int64(value), 10)
+		}
+		return strconv.FormatFloat(value, 'f', -1, 64)
+	case float32:
+		f := float64(value)
+		if f == float64(int64(f)) {
+			return strconv.FormatInt(int64(f), 10)
+		}
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	default:
+		if v == nil {
+			return ""
+		}
+		return fmt.Sprint(v)
+	}
+}
+
+func toInt(v any) int {
+	switch value := v.(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	case float32:
+		return int(value)
+	case string:
+		i, _ := strconv.Atoi(strings.TrimSpace(value))
+		return i
+	default:
+		return 0
+	}
+}
+
+func rawChoiceOptions(q map[string]any) []map[string]any {
+	if options := getArray(q, "options"); len(options) > 0 {
+		return options
+	}
+	return getArray(q, "choices")
+}
+
+func rawMatrixRows(q map[string]any) []map[string]any {
+	if rows := getArray(q, "sub_questions"); len(rows) > 0 {
+		return rows
+	}
+	return getArray(q, "choices")
+}
+
+func rawMatrixColumns(q map[string]any) []map[string]any {
+	if columns := getArray(q, "answers"); len(columns) > 0 {
+		return columns
+	}
+	return rawChoiceOptions(q)
+}
+
+func choiceText(m map[string]any) string {
+	return firstString(m, "text", "label", "display", "answerContent", "choiceContent", "choiceTitle", "answerTitle", "content", "title", "name")
+}
+
+func choiceID(m map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := m[key]; ok && strings.TrimSpace(valueString(value)) != "" {
+			return normalizeID(value)
+		}
+	}
+	return ""
+}
+
+func normalizeID(value any) any {
+	text := strings.TrimSpace(valueString(value))
+	if text == "" {
+		return ""
+	}
+	if id, err := strconv.Atoi(text); err == nil {
+		return id
+	}
+	return text
+}
+
+func choicePayload(choice map[string]any) map[string]any {
+	return map[string]any{
+		"choiceId":      choiceID(choice, "choiceId", "id"),
+		"choiceContent": choiceText(choice),
+	}
+}
+
+func forcedChoiceIndex(cfg *models.ExecutionConfig, questionID string, choices []map[string]any) int {
+	if cfg == nil || questionID == "" {
+		return -1
+	}
+	meta, ok := cfg.ProviderQuestionMetadataMap[questionID]
+	if !ok {
+		for _, candidate := range cfg.QuestionsMetadata {
+			if candidate.ProviderQuestionID == questionID {
+				meta = candidate
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		return -1
+	}
+	if meta.ForcedOptionText != "" {
+		target := strings.TrimSpace(meta.ForcedOptionText)
+		for idx, choice := range choices {
+			if choiceText(choice) == target {
+				return idx
+			}
+		}
+	}
+	if meta.ForcedOptionIndex != nil && *meta.ForcedOptionIndex >= 0 && *meta.ForcedOptionIndex < len(choices) {
+		return *meta.ForcedOptionIndex
+	}
+	return -1
+}
+
+func getString(m map[string]any, key string) string {
+	return strings.TrimSpace(valueString(m[key]))
 }
 
 func getArray(m map[string]any, key string) []map[string]any {
@@ -715,6 +995,9 @@ func getArray(m map[string]any, key string) []map[string]any {
 		}
 		return result
 	}
+	if arr, ok := m[key].([]map[string]any); ok {
+		return arr
+	}
 	return nil
 }
 
@@ -722,6 +1005,19 @@ func parseConfigIdx(s string) int {
 	var idx int
 	fmt.Sscanf(s, "%d", &idx)
 	return idx
+}
+
+func providerConfigIndex(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta) (string, bool) {
+	if cfg == nil || meta.ProviderQuestionID == "" {
+		return "", false
+	}
+	if key := models.MakeProviderQuestionKey(meta.Provider, meta.ProviderPageID, meta.ProviderQuestionID); key != "" {
+		if idx, ok := cfg.ProviderQuestionConfigIndexMap[key]; ok {
+			return idx, true
+		}
+	}
+	idx, ok := cfg.ProviderQuestionConfigIndexMap[meta.ProviderQuestionID]
+	return idx, ok
 }
 
 func allZero(probs []float64) bool {
@@ -743,13 +1039,72 @@ func toFloat64Slice(v any) ([]float64, bool) {
 	case []any:
 		result := make([]float64, 0, len(sl))
 		for _, item := range sl {
-			if f, ok := item.(float64); ok {
+			if f, ok := toFloat64(item); ok {
 				result = append(result, f)
 			}
 		}
 		return result, true
 	}
 	return nil, false
+}
+
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func matrixRowProbabilities(raw any, rowIndex, optionCount int) []float64 {
+	probs := make([]float64, optionCount)
+	switch sl := raw.(type) {
+	case [][]float64:
+		if rowIndex < len(sl) {
+			copy(probs, sl[rowIndex])
+		}
+	case []any:
+		if rowIndex < len(sl) {
+			if row, ok := toFloat64Slice(sl[rowIndex]); ok {
+				copy(probs, row)
+			}
+			break
+		}
+		if row, ok := toFloat64Slice(sl); ok {
+			copy(probs, row)
+		}
+	default:
+		if row, ok := toFloat64Slice(raw); ok {
+			copy(probs, row)
+		}
+	}
+	return probs
+}
+
+func sampleAnswerDurationSeconds(cfg *models.ExecutionConfig) int {
+	if cfg != nil {
+		min := cfg.AnswerDurationRangeSeconds[0]
+		max := cfg.AnswerDurationRangeSeconds[1]
+		if min > 0 || max > 0 {
+			if min < 0 {
+				min = 0
+			}
+			if max < min {
+				max = min
+			}
+			if max == min {
+				return max
+			}
+			return min + rand.Intn(max-min+1)
+		}
+	}
+	return 9 + rand.Intn(8)
 }
 
 func parseProxy(addr string) *string {

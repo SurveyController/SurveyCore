@@ -11,18 +11,24 @@ import (
 )
 
 var (
-	pausedSurveyIDRe = regexp.MustCompile(`此问卷[（(]\d+[）)]已暂停`)
-	notOpenTimeRe    = regexp.MustCompile(`此问卷将于\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2})\s*开放`)
+	pausedSurveyIDRe  = regexp.MustCompile(`此问卷[（(]\d+[）)]已暂停`)
+	notOpenTimeRe     = regexp.MustCompile(`此问卷将于\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2})\s*开放`)
+	leadingTitleNumRe = regexp.MustCompile(`^\s*\*?\s*(\d+)\s*[.．、]\s*(.*)$`)
+	forcedLetterRe    = regexp.MustCompile(`(?i)(?:请|务必|直接)?(?:选择|选|勾选)\s*([A-Z])\s*(?:项|选项)?`)
+	forcedIndexRe     = regexp.MustCompile(`(?:请|务必|直接)?(?:选择|选|勾选)?\s*第\s*(\d+)\s*(?:项|个)?`)
 )
 
 // Survey page state error types
 type SurveyPausedError struct{ Msg string }
+
 func (e *SurveyPausedError) Error() string { return e.Msg }
 
 type SurveyStoppedError struct{ Msg string }
+
 func (e *SurveyStoppedError) Error() string { return e.Msg }
 
 type SurveyNotOpenError struct{ Msg string }
+
 func (e *SurveyNotOpenError) Error() string { return e.Msg }
 
 // checkPageStateErrors checks if the HTML indicates a paused/stopped/not-open survey.
@@ -105,10 +111,15 @@ func extractSurveyTitle(doc *goquery.Document) string {
 
 func parseQuestions(doc *goquery.Document, html string) []models.SurveyQuestionMeta {
 	var questions []models.SurveyQuestionMeta
+	seen := make(map[int]bool)
 
-	doc.Find("fieldset, div[topic], div[type]").Each(func(i int, s *goquery.Selection) {
+	doc.Find("div[topic], div[id^='div'][type]").Each(func(i int, s *goquery.Selection) {
 		q := extractQuestion(s, i+1)
 		if q != nil {
+			if seen[q.Num] {
+				return
+			}
+			seen[q.Num] = true
 			questions = append(questions, *q)
 		}
 	})
@@ -137,13 +148,19 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 		}
 	}
 
-	title := extractQuestionTitle(s)
+	rawTitle := extractQuestionTitle(s)
+	title := cleanupQuestionTitle(rawTitle)
+	displayNum := extractDisplayQuestionNum(rawTitle)
 	typeCode := extractTypeCode(s)
 	optionTexts := extractOptionTexts(s)
+	if typeCode == "6" || (typeCode == "9" && !looksLikeTextQuestion(s)) {
+		optionTexts = extractMatrixOptionTexts(s, num)
+	}
 
 	q := &models.SurveyQuestionMeta{
 		Num:         num,
 		Title:       title,
+		DisplayNum:  displayNum,
 		TypeCode:    typeCode,
 		Options:     len(optionTexts),
 		OptionTexts: optionTexts,
@@ -158,12 +175,21 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 	}
 
 	// Detect text-like questions
-	if isTextQuestion(typeCode) {
+	if isTextQuestion(s, typeCode) {
 		q.IsTextLike = true
+	}
+	if q.IsTextLike {
+		q.TextInputCount = countTextInputs(s)
+		if q.TextInputCount > 1 {
+			q.IsMultiText = true
+		}
+	}
+	if (typeCode == "3" || typeCode == "4") && q.Options == 0 && !q.IsTextLike {
+		q.IsDescription = true
 	}
 
 	// Detect matrix questions
-	if typeCode == "6" {
+	if typeCode == "6" || (typeCode == "9" && !q.IsTextLike) {
 		q.RowTexts = extractRowTexts(s)
 		q.Rows = len(q.RowTexts)
 		if q.Rows == 0 {
@@ -172,8 +198,9 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 	}
 
 	// Extract forced option
-	if forcedIdx := extractForcedOption(s); forcedIdx >= 0 {
+	if forcedIdx, forcedText := extractForcedOption(s, title, optionTexts); forcedIdx >= 0 {
 		q.ForcedOptionIndex = &forcedIdx
+		q.ForcedOptionText = forcedText
 	}
 
 	// Detect slider
@@ -181,6 +208,9 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 		q.SliderMin = sliderMin
 		q.SliderMax = sliderMax
 		q.SliderStep = sliderStep
+		if q.Options <= 0 {
+			q.Options = 1
+		}
 	}
 
 	return q
@@ -192,12 +222,12 @@ func extractQuestionFromDiv(s *goquery.Selection, defaultNum int) *models.Survey
 		return nil
 	}
 	return &models.SurveyQuestionMeta{
-		Num:         defaultNum,
-		Title:       title,
-		TypeCode:    "1",
-		Options:     0,
-		Provider:    ProviderName,
-		Page:        1,
+		Num:      defaultNum,
+		Title:    title,
+		TypeCode: "1",
+		Options:  0,
+		Provider: ProviderName,
+		Page:     1,
 	}
 }
 
@@ -208,6 +238,23 @@ func extractQuestionTitle(s *goquery.Selection) string {
 		}
 	}
 	return strings.TrimSpace(s.Find("span").First().Text())
+}
+
+func cleanupQuestionTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if match := leadingTitleNumRe.FindStringSubmatch(title); match != nil {
+		return strings.TrimSpace(match[2])
+	}
+	return title
+}
+
+func extractDisplayQuestionNum(title string) *int {
+	if match := leadingTitleNumRe.FindStringSubmatch(strings.TrimSpace(title)); match != nil {
+		if value, err := strconv.Atoi(match[1]); err == nil {
+			return &value
+		}
+	}
+	return nil
 }
 
 func extractTypeCode(s *goquery.Selection) string {
@@ -221,20 +268,23 @@ func extractTypeCode(s *goquery.Selection) string {
 		return "6"
 	}
 	if strings.Contains(class, "slider") {
-		return "11"
+		return "8"
 	}
 	// Detect by structure
 	if s.Find("textarea").Length() > 0 {
-		return "8"
-	}
-	if s.Find("select").Length() > 0 {
-		return "35"
-	}
-	if s.Find("input[type='radio']").Length() > 0 {
 		return "1"
 	}
-	if s.Find("input[type='checkbox']").Length() > 0 {
+	if s.Find("select").Length() > 0 {
+		return "7"
+	}
+	if s.Find("input[type='range'], .slider, .rangeslider").Length() > 0 {
+		return "8"
+	}
+	if s.Find("input[type='radio']").Length() > 0 {
 		return "3"
+	}
+	if s.Find("input[type='checkbox']").Length() > 0 {
+		return "4"
 	}
 	return "1"
 }
@@ -266,13 +316,75 @@ func extractOptionTexts(s *goquery.Selection) []string {
 	return texts
 }
 
+func extractMatrixOptionTexts(s *goquery.Selection, questionNum int) []string {
+	var texts []string
+	s.Find("table tr").EachWithBreak(func(i int, row *goquery.Selection) bool {
+		if _, hasRowIndex := row.Attr("rowindex"); hasRowIndex {
+			return true
+		}
+		cells := row.Find("th,td")
+		if cells.Length() <= 1 {
+			return true
+		}
+		firstText := strings.TrimSpace(cells.First().Text())
+		if firstText != "" {
+			return true
+		}
+		cells.Each(func(cellIndex int, cell *goquery.Selection) {
+			if cellIndex == 0 {
+				return
+			}
+			text := strings.TrimSpace(cell.Text())
+			if text != "" {
+				texts = append(texts, text)
+			}
+		})
+		return len(texts) == 0
+	})
+	if len(texts) > 0 {
+		return dedupeNonEmpty(texts)
+	}
+
+	maxColumn := 0
+	nameRe := regexp.MustCompile(fmt.Sprintf(`^q%d_\d+_(\d+)$`, questionNum))
+	s.Find("input[name]").Each(func(i int, input *goquery.Selection) {
+		name, _ := input.Attr("name")
+		match := nameRe.FindStringSubmatch(strings.TrimSpace(name))
+		if match == nil {
+			return
+		}
+		col, err := strconv.Atoi(match[1])
+		if err == nil && col > maxColumn {
+			maxColumn = col
+		}
+	})
+	for i := 1; i <= maxColumn; i++ {
+		texts = append(texts, strconv.Itoa(i))
+	}
+	return texts
+}
+
 func extractRowTexts(s *goquery.Selection) []string {
 	var rows []string
-	s.Find("tr, .matrix-row").Each(func(i int, row *goquery.Selection) {
-		if text := strings.TrimSpace(row.Find("td:first-child, .row-label").First().Text()); text != "" {
+	s.Find("tr[rowindex], .matrix-row").Each(func(i int, row *goquery.Selection) {
+		firstCell := row.Find("td:first-child, th:first-child, .row-label").First()
+		text := strings.TrimSpace(firstCell.Text())
+		if text == "" {
+			if title, ok := firstCell.Attr("data-title"); ok {
+				text = strings.TrimSpace(title)
+			}
+		}
+		if text != "" {
 			rows = append(rows, text)
 		}
 	})
+	if len(rows) == 0 {
+		s.Find(".itemTitleSpan").Each(func(i int, item *goquery.Selection) {
+			if text := strings.TrimSpace(item.Text()); text != "" {
+				rows = append(rows, text)
+			}
+		})
+	}
 	return rows
 }
 
@@ -281,18 +393,101 @@ func isRatingQuestion(s *goquery.Selection) bool {
 	return strings.Contains(class, "rating") || s.Find(".rating").Length() > 0
 }
 
-func isTextQuestion(typeCode string) bool {
-	return typeCode == "8" || typeCode == "9" || typeCode == "1" || typeCode == "2"
+func isTextQuestion(s *goquery.Selection, typeCode string) bool {
+	if typeCode == "1" || typeCode == "2" {
+		return true
+	}
+	return looksLikeTextQuestion(s) && typeCode != "8"
 }
 
-func extractForcedOption(s *goquery.Selection) int {
+func looksLikeTextQuestion(s *goquery.Selection) bool {
+	return s.Find("textarea, input[type='text'], .textEdit, [contenteditable='true']").Length() > 0
+}
+
+func countTextInputs(s *goquery.Selection) int {
+	count := s.Find("textarea, input[type='text'], .textEdit, [contenteditable='true']").Length()
+	if count <= 0 && looksLikeTextQuestion(s) {
+		return 1
+	}
+	return count
+}
+
+func dedupeNonEmpty(values []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
+func extractForcedOption(s *goquery.Selection, title string, optionTexts []string) (int, string) {
 	// Check for data-forced attribute
 	if forced, ok := s.Attr("data-forced"); ok {
 		if idx, err := strconv.Atoi(forced); err == nil {
-			return idx
+			return clampOptionIndex(idx, optionTexts), optionTextAt(optionTexts, clampOptionIndex(idx, optionTexts))
 		}
 	}
-	return -1
+	normalizedTitle := normalizeForceText(title)
+	for idx, option := range optionTexts {
+		normalizedOption := normalizeForceText(option)
+		if normalizedOption == "" {
+			continue
+		}
+		if strings.Contains(normalizedTitle, "请选择"+normalizedOption) ||
+			strings.Contains(normalizedTitle, "选择"+normalizedOption) ||
+			strings.Contains(normalizedTitle, "选"+normalizedOption) ||
+			strings.Contains(normalizedTitle, "勾选"+normalizedOption) {
+			return idx, strings.TrimSpace(option)
+		}
+	}
+	if match := forcedLetterRe.FindStringSubmatch(title); match != nil {
+		letter := strings.ToUpper(match[1])
+		for idx, option := range optionTexts {
+			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(option)), letter) ||
+				strings.HasPrefix(strings.ToUpper(strings.TrimSpace(option)), "("+letter+")") ||
+				strings.HasPrefix(strings.ToUpper(strings.TrimSpace(option)), letter+".") {
+				return idx, strings.TrimSpace(option)
+			}
+		}
+	}
+	if match := forcedIndexRe.FindStringSubmatch(title); match != nil {
+		if oneBased, err := strconv.Atoi(match[1]); err == nil {
+			idx := oneBased - 1
+			if idx >= 0 && idx < len(optionTexts) {
+				return idx, strings.TrimSpace(optionTexts[idx])
+			}
+		}
+	}
+	return -1, ""
+}
+
+func normalizeForceText(value string) string {
+	replacer := strings.NewReplacer("（", "(", "）", ")", "【", "[", "】", "]", "。", "", "，", "", ",", "", ".", "")
+	text := replacer.Replace(strings.TrimSpace(value))
+	return strings.ToLower(strings.Join(strings.Fields(text), ""))
+}
+
+func clampOptionIndex(idx int, optionTexts []string) int {
+	if idx < 0 {
+		return 0
+	}
+	if len(optionTexts) > 0 && idx >= len(optionTexts) {
+		return len(optionTexts) - 1
+	}
+	return idx
+}
+
+func optionTextAt(optionTexts []string, idx int) string {
+	if idx >= 0 && idx < len(optionTexts) {
+		return strings.TrimSpace(optionTexts[idx])
+	}
+	return ""
 }
 
 func extractSliderRange(s *goquery.Selection) (min, max, step *float64) {

@@ -8,7 +8,7 @@ import (
 
 // DistributionTracker tracks answer distribution statistics at runtime.
 type DistributionTracker struct {
-	mu    sync.RWMutex
+	mu     sync.RWMutex
 	counts map[string][]int // key -> per-option counts
 }
 

@@ -2,6 +2,7 @@ package providers
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -18,6 +19,12 @@ var SupportedProviders = map[string]bool{
 	ProviderQQ:      true,
 	ProviderCredamo: true,
 }
+
+var (
+	qqSurveyPathRe           = regexp.MustCompile(`(?i)^/s\d+/\d+/[A-Za-z0-9_-]+/?$`)
+	credamoSurveyPathRe      = regexp.MustCompile(`(?i)^/answer\.html`)
+	credamoShortSurveyPathRe = regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`)
+)
 
 // NormalizeSurveyProvider normalizes a provider string to a canonical name.
 func NormalizeSurveyProvider(value, defaultProvider string) string {
@@ -36,56 +43,57 @@ func DetectSurveyProvider(urlValue, defaultProvider string) string {
 	if defaultProvider == "" {
 		defaultProvider = ProviderWJX
 	}
-	if IsWJXSurveyURL(urlValue) {
-		return ProviderWJX
+	if IsCredamoSurveyURL(urlValue) {
+		return ProviderCredamo
 	}
 	if IsQQSurveyURL(urlValue) {
 		return ProviderQQ
 	}
-	if IsCredamoSurveyURL(urlValue) {
-		return ProviderCredamo
+	if IsWJXDomain(urlValue) {
+		return ProviderWJX
 	}
-	return defaultProvider
+	return NormalizeSurveyProvider("", defaultProvider)
 }
 
 // IsSupportedSurveyURL checks if the URL belongs to a supported survey platform.
 func IsSupportedSurveyURL(urlValue string) bool {
-	return IsWJXSurveyURL(urlValue) || IsQQSurveyURL(urlValue) || IsCredamoSurveyURL(urlValue)
+	return IsWJXDomain(urlValue) || IsQQSurveyURL(urlValue) || IsCredamoSurveyURL(urlValue)
 }
 
 // IsWJXDomain checks if the host is a WJX (问卷星) domain.
 func IsWJXDomain(urlValue string) bool {
 	host := extractHost(urlValue)
-	return strings.HasSuffix(host, ".wjx.cn") || host == "wjx.cn" ||
-		strings.HasSuffix(host, ".wjx.com") || host == "wjx.com"
+	return hostMatches(host, "wjx.top", "wjx.cn", "wjx.com")
 }
 
 // IsWJXSurveyURL checks if the URL is a WJX survey URL.
 func IsWJXSurveyURL(urlValue string) bool {
-	host, path := extractHostPath(urlValue)
-	isWJX := strings.HasSuffix(host, ".wjx.cn") || host == "wjx.cn" ||
-		strings.HasSuffix(host, ".wjx.com") || host == "wjx.com"
-	if !isWJX {
-		return false
-	}
-	return strings.Contains(path, "/vp/") || strings.Contains(path, "/vm/") || strings.Contains(path, "/v/")
+	return IsWJXDomain(urlValue)
 }
 
 // IsQQSurveyURL checks if the URL is a Tencent survey URL.
 func IsQQSurveyURL(urlValue string) bool {
-	host := extractHost(urlValue)
-	return strings.HasSuffix(host, ".wj.qq.com") || host == "wj.qq.com"
+	host, path := extractHostPath(urlValue)
+	return host == "wj.qq.com" && qqSurveyPathRe.MatchString(path)
 }
 
 // IsCredamoSurveyURL checks if the URL is a Credamo survey URL.
 func IsCredamoSurveyURL(urlValue string) bool {
-	host := extractHost(urlValue)
-	return strings.HasSuffix(host, ".credamo.com") || host == "credamo.com" ||
-		strings.HasSuffix(host, ".jianshu.com") || host == "jianshu.com"
+	host, path := extractHostPath(urlValue)
+	if !hostMatches(host, "credamo.com", "credamo.cn") {
+		return false
+	}
+	return credamoSurveyPathRe.MatchString(path) || credamoShortSurveyPathRe.MatchString(path)
 }
 
 // MakeProviderQuestionKey creates a unique key for a provider question.
 func MakeProviderQuestionKey(provider, pageID, questionID string) string {
+	provider = NormalizeSurveyProvider(provider, ProviderWJX)
+	pageID = strings.TrimSpace(pageID)
+	questionID = strings.TrimSpace(questionID)
+	if pageID == "" || questionID == "" {
+		return ""
+	}
 	return provider + ":" + pageID + ":" + questionID
 }
 
@@ -100,9 +108,29 @@ func extractHost(rawURL string) string {
 }
 
 func extractHostPath(rawURL string) (string, string) {
-	u, err := url.Parse(rawURL)
+	text := strings.TrimSpace(rawURL)
+	if text == "" {
+		return "", ""
+	}
+	if !strings.Contains(text, "://") {
+		text = "https://" + text
+	}
+	u, err := url.Parse(text)
 	if err != nil {
 		return "", ""
 	}
-	return strings.ToLower(u.Host), u.Path
+	host := strings.ToLower(u.Hostname())
+	return host, u.Path
+}
+
+func hostMatches(host string, domains ...string) bool {
+	if host == "" {
+		return false
+	}
+	for _, domain := range domains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
 }
