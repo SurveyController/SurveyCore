@@ -27,10 +27,10 @@ var levelNames = map[Level]string{
 
 // Logger is a simple structured logger.
 type Logger struct {
-	mu      sync.Mutex
-	level   Level
-	logger  *log.Logger
-	prefix  string
+	mu     sync.Mutex
+	level  Level
+	logger *log.Logger
+	prefix string
 }
 
 // New creates a new logger with the given level and prefix.

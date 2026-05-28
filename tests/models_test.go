@@ -36,9 +36,9 @@ func TestRuntimeConfigSerialization(t *testing.T) {
 
 func TestQuestionEntryInferOptionCount(t *testing.T) {
 	tests := []struct {
-		name    string
-		entry   *models.QuestionEntry
-		want    int
+		name  string
+		entry *models.QuestionEntry
+		want  int
 	}{
 		{
 			name:  "nil entry",
@@ -192,6 +192,12 @@ func TestMakeProviderQuestionKey(t *testing.T) {
 	expected := "wjx:page1:q1"
 	if key != expected {
 		t.Errorf("MakeProviderQuestionKey() = %s, want %s", key, expected)
+	}
+	if got := models.MakeProviderQuestionKey("wjx", "", "q1"); got != "" {
+		t.Errorf("MakeProviderQuestionKey() with missing page = %q, want empty", got)
+	}
+	if got := models.MakeProviderQuestionKey("wjx", "page1", ""); got != "" {
+		t.Errorf("MakeProviderQuestionKey() with missing question = %q, want empty", got)
 	}
 }
 

@@ -11,28 +11,30 @@ The Python SurveyController is a survey automation tool supporting 3 platforms:
 
 | Python Module | Go Equivalent | Status |
 |---|---|---|
-| `software/core/config/schema.py` → `RuntimeConfig` | `internal/models/config.go` → `RuntimeConfig` | Migrating |
-| `software/core/questions/schema.py` → `QuestionEntry` | `internal/models/question.go` → `QuestionEntry` | Migrating |
-| `software/providers/contracts.py` → `SurveyQuestionMeta` | `internal/models/survey.go` → `SurveyQuestionMeta` | Migrating |
-| `software/core/task/task_context.py` → `ExecutionConfig/State` | `internal/models/execution.go` → `ExecutionConfig/State` | Migrating |
-| `software/providers/registry.py` | `internal/providers/registry.go` | Migrating |
-| `software/providers/common.py` | `internal/providers/common.go` | Migrating |
-| `wjx/provider/parser.py` | `internal/providers/wjx/parser.go` | Migrating |
-| `wjx/provider/http_runtime.py` | `internal/providers/wjx/http_runtime.go` | Migrating |
-| `tencent/provider/parser.py` | `internal/providers/tencent/parser.go` | Migrating |
-| `tencent/provider/http_runtime.py` | `internal/providers/tencent/http_runtime.go` | Migrating |
-| `credamo/provider/parser.py` | `internal/providers/credamo/parser.go` | Migrating |
-| `credamo/provider/http_runtime.py` | `internal/providers/credamo/http_runtime.go` | Migrating |
-| `software/core/engine/async_engine.py` | `internal/engine/engine.go` | Migrating |
-| `software/core/engine/async_scheduler.py` | `internal/engine/scheduler.go` | Migrating |
-| `software/network/http/` | `internal/network/httpclient/` | Migrating |
-| `software/network/proxy/` | `internal/network/proxy/` | Migrating |
-| `software/core/questions/` (answer builders) | `internal/questions/` | Migrating |
+| `software/core/config/schema.py` → `RuntimeConfig` | `internal/models/config.go` → `RuntimeConfig` | Complete |
+| `software/core/questions/schema.py` → `QuestionEntry` | `internal/models/question.go` → `QuestionEntry` | Complete |
+| `software/providers/contracts.py` → `SurveyQuestionMeta` | `internal/models/survey.go` → `SurveyQuestionMeta` | Complete |
+| `software/core/task/task_context.py` → `ExecutionConfig/State` | `internal/models/execution.go` → `ExecutionConfig/State` | Complete |
+| `software/providers/registry.py` | `internal/providers/registry.go` | Complete |
+| `software/providers/common.py` | `internal/providers/common.go` | Complete |
+| `wjx/provider/parser.py` | `internal/providers/wjx/html_parser.go` | Complete |
+| `wjx/provider/http_runtime.py` | `internal/providers/wjx/provider.go` + `answer_builder.go` | Complete |
+| `tencent/provider/parser.py` | `internal/providers/tencent/provider.go` | Complete |
+| `tencent/provider/http_runtime.py` | `internal/providers/tencent/provider.go` | Complete |
+| `credamo/provider/parser.py` | `internal/providers/credamo/provider.go` | Complete |
+| `credamo/provider/http_runtime.py` | `internal/providers/credamo/provider.go` | Complete |
+| `software/core/engine/async_engine.py` | `internal/engine/engine.go` | Complete |
+| `software/core/engine/async_scheduler.py` | `internal/engine/scheduler.go` | Complete |
+| `software/network/http/` | `internal/network/httpclient/` | Complete |
+| `software/network/proxy/` | `internal/network/proxy/` | Complete |
+| `software/core/questions/` (answer builders) | `internal/questions/` | Complete |
+| reverse-fill runtime | `internal/reversefill/` + `internal/models/reverse_fill.go` | Complete |
+| QR decode / Excel export | `internal/io/` | Complete |
 
 ### Architecture Mapping
 
 - **Python asyncio** → **Go goroutines + channels**
-- **PySide6 Qt GUI** → **CLI (cobra)** (GUI deferred to future phase)
+- **PySide6 Qt GUI** → **CLI (standard `flag`)** (GUI deferred to future phase)
 - **httpx** → **net/http** (standard library)
 - **BeautifulSoup** → **goquery**
 - **dataclasses** → **Go structs**
@@ -47,10 +49,12 @@ go-rewrite/
 │   └── main.go
 ├── internal/
 │   ├── config/               # Config serialization (JSON)
+│   │   └── default_entries.go # Default per-question config generation
 │   ├── models/               # Core data structures
 │   │   ├── config.go         # RuntimeConfig
 │   │   ├── execution.go      # ExecutionConfig, ExecutionState
 │   │   ├── question.go       # QuestionEntry
+│   │   ├── reverse_fill.go   # Reverse-fill runtime state
 │   │   ├── survey.go         # SurveyQuestionMeta, SurveyDefinition
 │   │   └── proxy.go          # ProxyLease, RandomIPSession
 │   ├── providers/            # Survey platform adapters
@@ -62,12 +66,13 @@ go-rewrite/
 │   │   └── credamo/          # 见数
 │   ├── engine/               # Async execution engine
 │   │   ├── engine.go         # Main engine
-│   │   ├── scheduler.go      # Bounded concurrency scheduler
-│   │   └── status.go         # Status bus
+│   │   └── scheduler.go      # Bounded concurrency scheduler
 │   ├── network/
 │   │   ├── httpclient/       # HTTP client pool
 │   │   └── proxy/            # Proxy management
 │   ├── questions/            # Answer generation
+│   ├── reversefill/          # Reverse-fill sample parsing
+│   ├── io/                   # QR decode and Excel export
 │   └── logging/              # Logging utilities
 ├── configs/                  # Example configs
 └── tests/                    # Integration tests
@@ -75,8 +80,25 @@ go-rewrite/
 
 ## Key Design Decisions
 
-1. **CLI-first**: No GUI in initial rewrite; use cobra CLI
+1. **CLI-first**: No GUI in initial rewrite; use a small standard-library `flag` CLI
 2. **Pure Go concurrency**: goroutines instead of asyncio
 3. **Standard library HTTP**: net/http + sync.Pool for client reuse
 4. **JSON config**: Compatible with Python version's JSON format
 5. **Interface-based providers**: Go interface instead of Python hook callables
+6. **Atomic provider boundaries**: parsing, answer planning, submit-body building, and HTTP submission are separated per provider
+7. **Runtime-first answer generation**: distribution tracking, consistency rules, psychometric bias, text generation, and reverse-fill samples flow through `internal/questions`
+
+## Current Verification Gate
+
+Run these checks before pushing rewrite changes:
+
+```bash
+go test ./...
+go vet ./...
+go build ./...
+go test -race ./...
+go mod tidy -diff
+git diff --check
+```
+
+The current rewrite contains 86 Go tests covering models, config generation, scheduler/engine behavior, provider URL detection, WJX/Tencent/Credamo provider paths, proxy handling, QR/Excel IO, reverse-fill, and runtime answer generation.

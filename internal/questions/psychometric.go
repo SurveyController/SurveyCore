@@ -8,21 +8,21 @@ import (
 
 // PsychometricItem describes one item in a psychometric plan.
 type PsychometricItem struct {
-	Kind            string    // "single", "matrix"
-	QuestionIndex   int
-	RowIndex        *int
-	OptionCount     int
-	Bias            string    // "left", "center", "right"
-	IsReversed      bool
-	ScoreByChoice   []float64 // score mapping for each choice
+	Kind          string // "single", "matrix"
+	QuestionIndex int
+	RowIndex      *int
+	OptionCount   int
+	Bias          string // "left", "center", "right"
+	IsReversed    bool
+	ScoreByChoice []float64 // score mapping for each choice
 }
 
 // PsychometricPlan holds pre-generated answers for a single dimension.
 type PsychometricPlan struct {
-	Items    []PsychometricItem
-	Theta    float64
-	SigmaE   float64
-	Choices  map[string]int // key -> choice index
+	Items   []PsychometricItem
+	Theta   float64
+	SigmaE  float64
+	Choices map[string]int // key -> choice index
 }
 
 // GetChoice returns the pre-generated choice for a question.

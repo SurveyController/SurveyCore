@@ -23,9 +23,9 @@ const (
 
 // WjxSubmitResult classification constants
 const (
-	SubmitSuccess     = "success"
+	SubmitSuccess      = "success"
 	SubmitVerification = "verification"
-	SubmitRejected    = "rejected"
+	SubmitRejected     = "rejected"
 )
 
 var submitRejectRe = regexp.MustCompile(`^\s*(\d+)[〒](\d+)[〒](.+)$`)
@@ -42,6 +42,7 @@ func (p *Provider) ProviderName() string { return ProviderName }
 
 // ParseSurvey fetches and parses a WJX survey page.
 func (p *Provider) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
+	surveyURL = normalizeSurveyURL(surveyURL)
 	resp, err := httpclient.Get(ctx, surveyURL, map[string]string{
 		"User-Agent": defaultUserAgent,
 		"Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -76,7 +77,8 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 		return false, nil
 	}
 
-	shortID, err := extractShortID(cfg.URL)
+	surveyURL := normalizeSurveyURL(cfg.URL)
+	shortID, err := extractShortID(surveyURL)
 	if err != nil {
 		return false, err
 	}
@@ -88,13 +90,13 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 
 	headers := map[string]string{
 		"User-Agent": ua,
-		"Referer":    cfg.URL,
+		"Referer":    surveyURL,
 		"Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 	}
 
 	// Load the survey page first to validate state
 	proxyAddr := parseProxyAddress(opts.ProxyAddress)
-	resp, err := httpclient.Get(ctx, cfg.URL, headers, proxyAddr, 15*time.Second)
+	resp, err := httpclient.Get(ctx, surveyURL, headers, proxyAddr, 15*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("无法加载问卷页面: %w", err)
 	}
@@ -104,23 +106,26 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	}
 
 	// Build answer actions
-	actions, err := buildAnswerActions(cfg, state)
+	plan, err := buildAnswerPlan(cfg, state, opts.ThreadName)
 	if err != nil {
 		return false, fmt.Errorf("生成答案失败: %w", err)
 	}
-	if len(actions) == 0 {
+	if len(plan.Actions) == 0 {
 		return false, fmt.Errorf("没有生成可提交答案")
 	}
 
 	// Build submitdata
-	submitData := buildSubmitData(actions, cfg)
+	submitData := buildSubmitData(plan.Actions, cfg)
+	if len(plan.SkippedNums) > 0 {
+		submitData = buildSubmitDataWithSkipped(plan.Actions, cfg, plan.SkippedNums)
+	}
 
 	// Build submission parameters
 	ktimes := sampleKtimes(cfg)
 	currentMS := time.Now().UnixMilli()
 	startSeconds := int(currentMS/1000) - ktimes
 	jqnonce := generateUUID()
-	domain := submitDomain(cfg.URL)
+	domain := submitDomain(surveyURL)
 
 	// Build query string from params
 	params := url.Values{}
@@ -150,7 +155,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 
 	submitHeaders := map[string]string{
 		"User-Agent":       ua,
-		"Referer":          cfg.URL,
+		"Referer":          surveyURL,
 		"Accept":           "text/plain, */*; q=0.01",
 		"Content-Type":     "application/x-www-form-urlencoded; charset=UTF-8",
 		"Origin":           fmt.Sprintf("https://%s", domain),
@@ -176,7 +181,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 // Helper functions
 
 func extractShortID(surveyURL string) (string, error) {
-	u, err := url.Parse(surveyURL)
+	u, err := url.Parse(normalizeSurveyURL(surveyURL))
 	if err != nil {
 		return "", fmt.Errorf("invalid survey URL: %w", err)
 	}
@@ -191,8 +196,16 @@ func extractShortID(surveyURL string) (string, error) {
 	return shortID, nil
 }
 
+func normalizeSurveyURL(surveyURL string) string {
+	text := strings.TrimSpace(surveyURL)
+	if text == "" || strings.Contains(text, "://") {
+		return text
+	}
+	return "https://" + text
+}
+
 func submitDomain(surveyURL string) string {
-	u, err := url.Parse(surveyURL)
+	u, err := url.Parse(normalizeSurveyURL(surveyURL))
 	if err != nil {
 		return "v.wjx.cn"
 	}
@@ -225,7 +238,7 @@ func sampleKtimes(cfg *models.ExecutionConfig) int {
 		min := cfg.AnswerDurationRangeSeconds[0]
 		max := cfg.AnswerDurationRangeSeconds[1]
 		if max > min {
-			return min + rand.Intn(max-min)
+			return min + rand.Intn(max-min+1)
 		}
 		return min
 	}

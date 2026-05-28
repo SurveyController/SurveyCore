@@ -2,11 +2,12 @@ package wjx
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
+	"strconv"
 	"strings"
 
 	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/SurveyController/SurveyConsole/internal/questions"
 )
 
 // AnswerAction represents a single answer to be submitted.
@@ -20,22 +21,69 @@ type AnswerAction struct {
 	OptionFillTexts map[int]string // index -> fill text
 }
 
+type answerPlan struct {
+	Actions         []AnswerAction
+	SkippedNums     []int
+	TerminatedEarly bool
+}
+
 // buildAnswerActions generates answer actions for all questions in the config.
-func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState) ([]AnswerAction, error) {
-	var actions []AnswerAction
-	for _, meta := range sortedQuestions(cfg) {
+func buildAnswerActions(cfg *models.ExecutionConfig, state *models.ExecutionState, threadName string) ([]AnswerAction, error) {
+	plan, err := buildAnswerPlan(cfg, state, threadName)
+	if err != nil {
+		return nil, err
+	}
+	return plan.Actions, nil
+}
+
+func buildAnswerPlan(cfg *models.ExecutionConfig, state *models.ExecutionState, threadName string) (*answerPlan, error) {
+	runtime := questions.NewRunContextForThread(cfg, state, threadName)
+	ordered := sortedQuestions(cfg)
+	maxQuestionNum := 0
+	for _, meta := range ordered {
+		if meta.Num > maxQuestionNum {
+			maxQuestionNum = meta.Num
+		}
+	}
+
+	plan := &answerPlan{}
+	actionByNum := make(map[int]AnswerAction)
+	jumpTarget := (*int)(nil)
+
+	for _, meta := range ordered {
+		if jumpTarget != nil {
+			if meta.Num < *jumpTarget {
+				plan.SkippedNums = append(plan.SkippedNums, meta.Num)
+				continue
+			}
+			jumpTarget = nil
+		}
+
+		if !questionVisible(meta, actionByNum) {
+			plan.SkippedNums = append(plan.SkippedNums, meta.Num)
+			continue
+		}
+
 		if meta.Unsupported {
 			return nil, fmt.Errorf("问卷星第%d题暂不支持: %s", meta.Num, meta.UnsupportedReason)
 		}
-		action, err := buildSingleAction(cfg, meta)
+		action, err := buildSingleAction(cfg, meta, runtime)
 		if err != nil {
 			return nil, err
 		}
 		if action != nil {
-			actions = append(actions, *action)
+			actionByNum[meta.Num] = *action
+			plan.Actions = append(plan.Actions, *action)
+			if target := resolveJumpTarget(meta, *action); target != nil {
+				if *target > maxQuestionNum {
+					plan.TerminatedEarly = true
+					return plan, nil
+				}
+				jumpTarget = target
+			}
 		}
 	}
-	return actions, nil
+	return plan, nil
 }
 
 // sortedQuestions returns questions sorted by page and num.
@@ -48,8 +96,12 @@ func sortedQuestions(cfg *models.ExecutionConfig) []models.SurveyQuestionMeta {
 	for i := 0; i < len(questions); i++ {
 		for j := i + 1; j < len(questions); j++ {
 			pi, pj := questions[i].Page, questions[j].Page
-			if pi == 0 { pi = 1 }
-			if pj == 0 { pj = 1 }
+			if pi == 0 {
+				pi = 1
+			}
+			if pj == 0 {
+				pj = 1
+			}
 			if pi > pj || (pi == pj && questions[i].Num > questions[j].Num) {
 				questions[i], questions[j] = questions[j], questions[i]
 			}
@@ -58,8 +110,120 @@ func sortedQuestions(cfg *models.ExecutionConfig) []models.SurveyQuestionMeta {
 	return questions
 }
 
+func questionVisible(meta models.SurveyQuestionMeta, actionByNum map[int]AnswerAction) bool {
+	if len(meta.DisplayConditions) == 0 {
+		return !meta.HasDisplayCondition
+	}
+	grouped := make(map[string][]map[string]any)
+	for _, condition := range meta.DisplayConditions {
+		sourceQuestionNum := intFromAny(condition["condition_question_num"])
+		if sourceQuestionNum <= 0 {
+			continue
+		}
+		mode := stringFromAny(condition["condition_mode"], "selected")
+		key := fmt.Sprintf("%d:%s", sourceQuestionNum, mode)
+		grouped[key] = append(grouped[key], condition)
+	}
+	if len(grouped) == 0 {
+		return !meta.HasDisplayCondition
+	}
+	for _, group := range grouped {
+		matched := false
+		for _, condition := range group {
+			if conditionMet(actionByNum, condition) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func conditionMet(actionByNum map[int]AnswerAction, condition map[string]any) bool {
+	sourceQuestionNum := intFromAny(condition["condition_question_num"])
+	if sourceQuestionNum <= 0 {
+		return false
+	}
+	sourceAction, ok := actionByNum[sourceQuestionNum]
+	if !ok {
+		return false
+	}
+
+	mode := stringFromAny(condition["condition_mode"], "selected")
+	conditionIndices := intSetFromAny(condition["condition_option_indices"])
+	selectedIndices := selectedIndexSet(sourceAction)
+	if len(conditionIndices) == 0 {
+		return mode == "selected"
+	}
+	if mode == "not_selected" {
+		for idx := range conditionIndices {
+			if selectedIndices[idx] {
+				return false
+			}
+		}
+		return true
+	}
+	for idx := range conditionIndices {
+		if selectedIndices[idx] {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveJumpTarget(meta models.SurveyQuestionMeta, action AnswerAction) *int {
+	if len(meta.JumpRules) == 0 {
+		return nil
+	}
+	selectedIndices := selectedIndexSet(action)
+	var unconditional *int
+	for _, rule := range meta.JumpRules {
+		target := intFromAny(rule["jumpto"])
+		if target <= 0 {
+			continue
+		}
+		optionIndex := intFromAny(rule["option_index"])
+		if raw, ok := rule["option_index"]; !ok || raw == nil {
+			optionIndex = -1
+		}
+		if optionIndex < 0 {
+			if unconditional == nil {
+				targetCopy := target
+				unconditional = &targetCopy
+			}
+			continue
+		}
+		if selectedIndices[optionIndex] {
+			targetCopy := target
+			return &targetCopy
+		}
+	}
+	return unconditional
+}
+
+func selectedIndexSet(action AnswerAction) map[int]bool {
+	result := make(map[int]bool)
+	if action.Kind == "matrix" {
+		for _, idx := range action.MatrixIndices {
+			if idx >= 0 {
+				result[idx] = true
+			}
+		}
+		return result
+	}
+	for _, idx := range action.SelectedIndices {
+		if idx >= 0 {
+			result[idx] = true
+		}
+	}
+	return result
+}
+
 // buildSingleAction builds an answer action for a single question.
-func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta) (*AnswerAction, error) {
+func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, runtime *questions.RunContext) (*AnswerAction, error) {
 	typeCode := strings.TrimSpace(meta.TypeCode)
 	questionNum := meta.Num
 
@@ -70,21 +234,26 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	}
 
 	switch typeCode {
-	case "1", "2", "33", "34": // Single choice
-		return buildChoiceAction(cfg, meta, configIdx, false)
-	case "3", "4", "5": // Multiple choice
-		return buildMultipleChoiceAction(cfg, meta, configIdx)
+	case "1", "2": // Text / fill blank
+		return buildTextAction(cfg, meta, configIdx, runtime)
+	case "3", "33", "34": // Single choice
+		return buildChoiceAction(cfg, meta, configIdx, false, runtime)
+	case "4": // Multiple choice
+		return buildMultipleChoiceAction(cfg, meta, configIdx, runtime)
+	case "5": // Scale / rating
+		return buildScaleAction(cfg, meta, configIdx, runtime)
 	case "6": // Matrix
-		return buildMatrixAction(cfg, meta, configIdx)
-	case "7": // Scale / rating
-		return buildScaleAction(cfg, meta, configIdx)
-	case "8", "9": // Text
-		return buildTextAction(cfg, meta, configIdx)
-	case "11": // Slider
+		return buildMatrixAction(cfg, meta, configIdx, runtime)
+	case "7", "35": // Dropdown list
+		return buildChoiceAction(cfg, meta, configIdx, true, runtime)
+	case "8": // Slider
 		return buildSliderAction(cfg, meta, configIdx)
-	case "35": // Dropdown list
-		return buildChoiceAction(cfg, meta, configIdx, true)
-	case "12": // Order / ranking
+	case "9":
+		if meta.IsTextLike || meta.IsMultiText {
+			return buildTextAction(cfg, meta, configIdx, runtime)
+		}
+		return buildMatrixAction(cfg, meta, configIdx, runtime)
+	case "11", "12": // Order / ranking
 		return buildOrderAction(cfg, meta, configIdx)
 	default:
 		// Skip unsupported types
@@ -92,7 +261,7 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	}
 }
 
-func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, isDropdown bool) (*AnswerAction, error) {
+func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, isDropdown bool, runtime *questions.RunContext) (*AnswerAction, error) {
 	optionCount := meta.Options
 	if optionCount <= 0 {
 		optionCount = len(meta.OptionTexts)
@@ -116,7 +285,7 @@ func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 
 	// Get probabilities from config
 	probs := getProbabilities(cfg, configIdx, optionCount, isDropdown)
-	selectedIdx := weightedIndex(probs, optionCount)
+	selectedIdx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 
 	// Resolve option fill text
 	fillTexts := resolveOptionFillText(cfg, configIdx, selectedIdx, isDropdown)
@@ -129,7 +298,7 @@ func buildChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	}, nil
 }
 
-func buildMultipleChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) (*AnswerAction, error) {
+func buildMultipleChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) (*AnswerAction, error) {
 	optionCount := meta.Options
 	if optionCount <= 0 {
 		optionCount = len(meta.OptionTexts)
@@ -158,9 +327,7 @@ func buildMultipleChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQu
 		}
 	}
 
-	// Select based on probabilities
-	numSelect := minLimit + rand.Intn(maxLimit-minLimit+1)
-	selected := weightedSampleWithoutReplacement(probs, optionCount, numSelect)
+	selected := runtime.ChooseMultiple(meta, configIdx, optionCount, minLimit, maxLimit, probs)
 
 	return &AnswerAction{
 		QuestionNum:     meta.Num,
@@ -169,7 +336,7 @@ func buildMultipleChoiceAction(cfg *models.ExecutionConfig, meta models.SurveyQu
 	}, nil
 }
 
-func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) (*AnswerAction, error) {
+func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) (*AnswerAction, error) {
 	rows := meta.Rows
 	if rows <= 0 {
 		rows = 1
@@ -184,18 +351,15 @@ func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 		// Get probabilities for this row
 		probs := make([]float64, optionCount)
 		if configIdx >= 0 && configIdx < len(cfg.MatrixProb) {
-			if nested, ok := cfg.MatrixProb[configIdx].([]any); ok && i < len(nested) {
-				if rowProbs, ok := nested[i].([]float64); ok {
-					copy(probs, rowProbs)
-				}
-			}
+			copy(probs, matrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
 		}
 		if len(probs) == 0 || allZero(probs) {
 			for j := range probs {
 				probs[j] = 1.0 / float64(optionCount)
 			}
 		}
-		indices[i] = weightedIndex(probs, optionCount)
+		rowIndex := i
+		indices[i] = runtime.ChooseSingle(meta, configIdx, optionCount, probs, &rowIndex)
 	}
 
 	return &AnswerAction{
@@ -205,7 +369,7 @@ func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	}, nil
 }
 
-func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) (*AnswerAction, error) {
+func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) (*AnswerAction, error) {
 	optionCount := meta.Options
 	if optionCount <= 0 {
 		optionCount = 5
@@ -223,7 +387,7 @@ func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 		}
 	}
 
-	idx := weightedIndex(probs, optionCount)
+	idx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 	return &AnswerAction{
 		QuestionNum:     meta.Num,
 		Kind:            "choice",
@@ -231,13 +395,22 @@ func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 	}, nil
 }
 
-func buildTextAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) (*AnswerAction, error) {
+func buildTextAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) (*AnswerAction, error) {
 	textValues := []string{""}
-	if configIdx >= 0 && configIdx < len(cfg.Texts) && len(cfg.Texts[configIdx]) > 0 {
-		texts := cfg.Texts[configIdx]
-		textValues = []string{texts[rand.Intn(len(texts))]}
+	if text, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+		textValues = []string{text}
 	} else {
 		textValues = []string{generateDefaultText(meta)}
+	}
+	blankCount := meta.TextInputCount
+	if blankCount <= 0 {
+		blankCount = len(textValues)
+	}
+	generated := runtime.GenerateText(meta, configIdx, textValues[0], blankCount)
+	if blankCount > 1 {
+		textValues = splitMultiTextAnswer(generated, blankCount)
+	} else {
+		textValues[0] = generated
 	}
 
 	return &AnswerAction{
@@ -245,6 +418,19 @@ func buildTextAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta
 		Kind:        "text",
 		TextValues:  textValues,
 	}, nil
+}
+
+func splitMultiTextAnswer(answer string, blankCount int) []string {
+	if blankCount <= 1 {
+		return []string{answer}
+	}
+	parts := strings.FieldsFunc(answer, func(r rune) bool {
+		return r == '|' || r == '^'
+	})
+	for len(parts) < blankCount {
+		parts = append(parts, "")
+	}
+	return parts[:blankCount]
 }
 
 func buildSliderAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int) (*AnswerAction, error) {
@@ -348,49 +534,6 @@ func getProbabilities(cfg *models.ExecutionConfig, configIdx int, optionCount in
 	return probs
 }
 
-func weightedIndex(probs []float64, optionCount int) int {
-	if optionCount <= 0 {
-		return 0
-	}
-	total := 0.0
-	for i := 0; i < optionCount && i < len(probs); i++ {
-		total += math.Max(0, probs[i])
-	}
-	if total <= 0 {
-		return rand.Intn(optionCount)
-	}
-	r := rand.Float64() * total
-	cumulative := 0.0
-	for i := 0; i < optionCount && i < len(probs); i++ {
-		cumulative += math.Max(0, probs[i])
-		if r <= cumulative {
-			return i
-		}
-	}
-	return optionCount - 1
-}
-
-func weightedSampleWithoutReplacement(probs []float64, optionCount, numSelect int) []int {
-	if numSelect >= optionCount {
-		result := make([]int, optionCount)
-		for i := range result {
-			result[i] = i
-		}
-		return result
-	}
-
-	selected := make([]int, 0, numSelect)
-	remaining := make([]float64, optionCount)
-	copy(remaining, probs)
-
-	for len(selected) < numSelect {
-		idx := weightedIndex(remaining, optionCount)
-		selected = append(selected, idx)
-		remaining[idx] = 0
-	}
-	return selected
-}
-
 func allZero(probs []float64) bool {
 	for _, p := range probs {
 		if p != 0 {
@@ -410,7 +553,7 @@ func toFloat64Slice(v any) ([]float64, bool) {
 	case []any:
 		result := make([]float64, 0, len(sl))
 		for _, item := range sl {
-			if f, ok := item.(float64); ok {
+			if f, ok := toFloat64(item); ok {
 				result = append(result, f)
 			}
 		}
@@ -419,10 +562,101 @@ func toFloat64Slice(v any) ([]float64, bool) {
 	return nil, false
 }
 
+func toFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func matrixRowProbabilities(raw any, rowIndex, optionCount int) []float64 {
+	probs := make([]float64, optionCount)
+	switch sl := raw.(type) {
+	case [][]float64:
+		if rowIndex < len(sl) {
+			copy(probs, sl[rowIndex])
+		}
+	case []any:
+		if rowIndex < len(sl) {
+			if row, ok := toFloat64Slice(sl[rowIndex]); ok {
+				copy(probs, row)
+			}
+			break
+		}
+		if row, ok := toFloat64Slice(sl); ok {
+			copy(probs, row)
+		}
+	default:
+		if row, ok := toFloat64Slice(raw); ok {
+			copy(probs, row)
+		}
+	}
+	return probs
+}
+
 func parseConfigIndex(s string) int {
 	var idx int
 	fmt.Sscanf(s, "%d", &idx)
 	return idx
+}
+
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func stringFromAny(value any, fallback string) string {
+	if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+		return strings.TrimSpace(text)
+	}
+	return fallback
+}
+
+func intSetFromAny(value any) map[int]bool {
+	result := make(map[int]bool)
+	switch raw := value.(type) {
+	case []int:
+		for _, item := range raw {
+			if item >= 0 {
+				result[item] = true
+			}
+		}
+	case []float64:
+		for _, item := range raw {
+			if item >= 0 {
+				result[int(item)] = true
+			}
+		}
+	case []any:
+		for _, item := range raw {
+			value := intFromAny(item)
+			if value >= 0 {
+				result[value] = true
+			}
+		}
+	}
+	return result
 }
 
 // buildSubmitData serializes answer actions into WJX submitdata format.
@@ -498,7 +732,7 @@ func skippedAnswer(cfg *models.ExecutionConfig, questionNum int) string {
 	}
 	typeCode := strings.TrimSpace(meta.TypeCode)
 	switch typeCode {
-	case "3", "4", "5": // Multiple choice
+	case "3", "4", "5", "7", "35":
 		return "-3"
 	case "6": // Matrix
 		rows := meta.Rows
@@ -510,10 +744,19 @@ func skippedAnswer(cfg *models.ExecutionConfig, questionNum int) string {
 			parts = append(parts, fmt.Sprintf("%d!-3", i+1))
 		}
 		return strings.Join(parts, ",")
-	case "11": // Slider/order
-		return "-3"
-	default: // Single, text, etc.
+	case "11", "12":
+		optionCount := meta.Options
+		if optionCount <= 0 {
+			optionCount = len(meta.OptionTexts)
+		}
+		if optionCount <= 0 {
+			optionCount = 1
+		}
+		return strings.TrimRight(strings.Repeat("-3,", optionCount), ",")
+	case "1", "2", "8", "9", "33", "34":
 		return "(跳过)"
+	default:
+		return "-3"
 	}
 }
 
@@ -537,7 +780,7 @@ func formatAnswer(action AnswerAction) string {
 		return strings.Join(parts, ",")
 	case "slider":
 		if action.SliderValue != nil {
-			return fmt.Sprintf("%.0f", *action.SliderValue)
+			return strconv.FormatFloat(*action.SliderValue, 'f', -1, 64)
 		}
 		return ""
 	case "order":

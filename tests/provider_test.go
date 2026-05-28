@@ -12,9 +12,14 @@ func TestDetectSurveyProvider(t *testing.T) {
 		expected string
 	}{
 		{"https://www.wjx.cn/vm/xxxxx.aspx", "wjx"},
+		{"www.wjx.cn/vm/xxxxx.aspx", "wjx"},
+		{"https://www.wjx.top/vm/xxxxx.aspx", "wjx"},
 		{"https://ks.wjx.com/vm/xxxxx.aspx", "wjx"},
-		{"https://wj.qq.com/s/xxxxx", "qq"},
+		{"https://wj.qq.com/s2/26070328/fa89/", "qq"},
+		{"https://wj.qq.com/profile", "wjx"},
 		{"https://www.credamo.com/s/xxxxx", "credamo"},
+		{"https://www.credamo.cn/answer.html#/s/xxxxx", "credamo"},
+		{"https://www.credamo.com/profile", "wjx"},
 		{"https://example.com/survey", "wjx"}, // default
 	}
 
@@ -34,6 +39,8 @@ func TestIsWJXSurveyURL(t *testing.T) {
 		expected bool
 	}{
 		{"https://www.wjx.cn/vm/xxxxx.aspx", true},
+		{"www.wjx.cn/vm/xxxxx.aspx", true},
+		{"https://www.wjx.top/vm/xxxxx.aspx", true},
 		{"https://ks.wjx.com/vm/xxxxx.aspx", true},
 		{"https://wj.qq.com/s/xxxxx", false},
 		{"https://example.com", false},
@@ -54,7 +61,10 @@ func TestIsQQSurveyURL(t *testing.T) {
 		url      string
 		expected bool
 	}{
-		{"https://wj.qq.com/s/xxxxx", true},
+		{"https://wj.qq.com/s2/26070328/fa89/", true},
+		{"wj.qq.com/s2/26070328/fa89/", true},
+		{"https://wj.qq.com/s/xxxxx", false},
+		{"https://wj.qq.com/profile", false},
 		{"https://www.wjx.cn/vm/xxxxx.aspx", false},
 	}
 
@@ -63,6 +73,27 @@ func TestIsQQSurveyURL(t *testing.T) {
 			got := providers.IsQQSurveyURL(tt.url)
 			if got != tt.expected {
 				t.Errorf("IsQQSurveyURL(%s) = %v, want %v", tt.url, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsCredamoSurveyURL(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected bool
+	}{
+		{"https://www.credamo.com/s/xxxxx", true},
+		{"www.credamo.cn/answer.html#/s/xxxxx", true},
+		{"https://www.credamo.com/profile", false},
+		{"https://example.com/s/xxxxx", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			got := providers.IsCredamoSurveyURL(tt.url)
+			if got != tt.expected {
+				t.Errorf("IsCredamoSurveyURL(%s) = %v, want %v", tt.url, got, tt.expected)
 			}
 		})
 	}
@@ -77,8 +108,8 @@ func TestNormalizeSurveyProvider(t *testing.T) {
 		{"wjx", "", "wjx"},
 		{"WJX", "", "wjx"},
 		{" qq ", "", "qq"},
-		{"invalid", "", "wjx"},     // falls back to default
-		{"invalid", "qq", "qq"},    // falls back to custom default
+		{"invalid", "", "wjx"},  // falls back to default
+		{"invalid", "qq", "qq"}, // falls back to custom default
 	}
 
 	for _, tt := range tests {

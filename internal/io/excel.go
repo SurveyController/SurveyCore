@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xuri/excelize/v2"
 	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/xuri/excelize/v2"
 )
 
 // ExportRunReport exports a run report to an Excel file.
@@ -246,9 +246,9 @@ func typeCodeToName(code string) string {
 	case "0":
 		return "说明"
 	case "1":
-		return "单选"
+		return "填空"
 	case "2":
-		return "多选"
+		return "填空"
 	case "3":
 		return "单选"
 	case "4":
@@ -260,10 +260,12 @@ func typeCodeToName(code string) string {
 	case "7":
 		return "下拉"
 	case "8":
-		return "填空"
+		return "滑块"
 	case "9":
-		return "填空"
+		return "矩阵/填空"
 	case "11":
+		return "排序"
+	case "12":
 		return "排序"
 	case "33":
 		return "单选"

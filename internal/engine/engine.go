@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,23 +78,19 @@ func (e *Engine) Run(ctx context.Context, cfg *models.ExecutionConfig, state *mo
 	}
 
 	state.EnsureWorkerThreads(concurrency, "Worker")
+	state.InitializeReverseFillRuntime()
 
 	scheduler := NewScheduler(concurrency)
 	scheduler.Start()
 	defer scheduler.Close()
 
-	// Create pause channel
-	pauseChan := make(chan struct{}, 1)
-	// Initially unblocked (not paused)
-	pauseChan <- struct{}{}
-
 	// Start proxy prefetch loop if proxy pool is configured
 	if e.pool != nil && cfg.RandomProxyIPEnabled {
+		e.prefetchProxyBatch(e.pool, concurrency*2)
 		go e.proxyPrefetchLoop(ctx, e.pool, cfg, concurrency)
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, concurrency)
 
 	// Start worker goroutines
 	for i := 0; i < concurrency; i++ {
@@ -114,15 +111,32 @@ func (e *Engine) Run(ctx context.Context, cfg *models.ExecutionConfig, state *mo
 	select {
 	case <-doneChan:
 		return nil
+	case <-ctx.Done():
+		state.SignalStop()
+		select {
+		case <-doneChan:
+		case <-time.After(30 * time.Second):
+		}
+		return nil
 	case <-state.StopChan:
 		select {
 		case <-doneChan:
 		case <-time.After(30 * time.Second):
 		}
 		return nil
-	case err := <-errChan:
-		return err
 	}
+}
+
+func (e *Engine) prefetchProxyBatch(pool *proxy.Pool, count int) {
+	if count <= 0 {
+		count = 1
+	}
+	leases, err := pool.FetchBatch(count)
+	if err != nil {
+		log.Printf("[ProxyPrefetch] 获取代理失败: %v", err)
+		return
+	}
+	pool.AddLeases(leases)
 }
 
 func (e *Engine) proxyPrefetchLoop(ctx context.Context, pool *proxy.Pool, cfg *models.ExecutionConfig, concurrency int) {
@@ -137,12 +151,7 @@ func (e *Engine) proxyPrefetchLoop(ctx context.Context, pool *proxy.Pool, cfg *m
 			// Prefetch if pool is running low
 			bufferSize := concurrency * 2
 			if pool.Size() < bufferSize {
-				leases, err := pool.FetchBatch(bufferSize)
-				if err != nil {
-					log.Printf("[ProxyPrefetch] 获取代理失败: %v", err)
-					continue
-				}
-				pool.AddLeases(leases)
+				e.prefetchProxyBatch(pool, bufferSize)
 			}
 			pool.CleanupExpired()
 		}
@@ -153,13 +162,23 @@ func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg
 	threadName := fmt.Sprintf("Worker-%d", workerID+1)
 
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		if state.IsStopped() {
 			return
 		}
 
 		// Check pause state
 		for e.paused.Load() {
-			time.Sleep(500 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
 			if state.IsStopped() {
 				return
 			}
@@ -176,28 +195,55 @@ func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg
 			return
 		}
 
+		if !state.TryStartSubmission(cfg.TargetNum) {
+			scheduler.Release(tokenID, 0)
+			return
+		}
+		if state.HasReverseFillRuntime() {
+			acquired := state.AcquireReverseFillSample(threadName)
+			if acquired.Status != "acquired" {
+				state.AbortSubmissionReservation()
+				scheduler.Release(tokenID, 0)
+				if acquired.Status == "exhausted" {
+					state.MarkTerminalStop("reverse_fill_exhausted", "reverse_fill_exhausted", "反填样本已耗尽，剩余样本不足以完成目标份数")
+					state.SignalStop()
+				}
+				return
+			}
+		}
+
 		// Execute one submission
 		success := e.executeOne(ctx, adapter, cfg, state, threadName)
 
+		if state.IsStopped() && !success {
+			state.AbortSubmissionReservation()
+			state.ReleaseReverseFillSample(threadName, true)
+			scheduler.Release(tokenID, 0)
+			return
+		}
+
 		// Update counters
+		state.CompleteSubmission(success)
 		if success {
-			state.IncrementSuccess()
 			state.IncrementThreadSuccess(threadName)
+			state.CommitReverseFillSample(threadName)
+			e.emit(threadName, "提交成功", true, false, state)
 		} else {
-			state.IncrementFail()
 			state.IncrementThreadFail(threadName)
+			if _, discarded := state.MarkReverseFillSubmissionFailed(threadName, 1); discarded && state.IsReverseFillTargetUnreachable() {
+				state.MarkTerminalStop("reverse_fill_exhausted", "reverse_fill_exhausted", "反填样本已耗尽，剩余样本不足以完成目标份数")
+				state.SignalStop()
+			}
+			e.emit(threadName, "提交失败", false, true, state)
 		}
 
 		// Release token with optional delay
-		delay := time.Duration(0)
-		if cfg.SubmitIntervalRangeSeconds[0] > 0 {
-			delay = time.Duration(cfg.SubmitIntervalRangeSeconds[0]) * time.Second
-		}
+		delay := sampleIntervalDelay(cfg.SubmitIntervalRangeSeconds)
 		scheduler.Release(tokenID, delay)
 
 		// Check fail threshold
 		if cfg.StopOnFailEnabled && state.GetCurFail() >= cfg.FailThreshold {
-			state.MarkTerminalStop("fail_threshold", "fail_threshold", fmt.Sprintf("连续失败 %d 次，已停止", state.GetCurFail()))
+			state.MarkTerminalStop("fail_threshold", "fail_threshold", fmt.Sprintf("累计失败 %d 次，已停止", state.GetCurFail()))
 			state.SignalStop()
 			return
 		}
@@ -213,17 +259,27 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 	}()
 
 	// Get proxy if enabled
-	var proxyAddr string
+	var proxyAddr, rawProxyAddr string
 	if cfg.RandomProxyIPEnabled && e.pool != nil {
 		lease := e.pool.Pop()
+		if lease == nil {
+			e.prefetchProxyBatch(e.pool, 1)
+			lease = e.pool.Pop()
+		}
+		if lease == nil {
+			log.Printf("[Worker %s] 随机 IP 已启用但没有可用代理", threadName)
+			return false
+		}
 		if lease != nil {
-			proxyAddr = lease.Address
+			rawProxyAddr = lease.Address
+			proxyAddr = proxy.ExtractProxyAddress(lease.Address)
 		}
 	}
 
 	opts := models.FillOptions{
 		ThreadName:   threadName,
 		ProxyAddress: proxyAddr,
+		UserAgent:    sampleUserAgent(cfg),
 		StopChan:     state.StopChan,
 	}
 
@@ -232,8 +288,8 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 	success, err := adapter.FillSurveyHTTP(ctx, cfg, state, opts)
 	if err != nil {
 		log.Printf("[Worker %s] 提交失败: %v", threadName, err)
-		if cfg.RandomProxyIPEnabled && e.pool != nil && proxyAddr != "" {
-			e.pool.MarkBad(proxyAddr)
+		if cfg.RandomProxyIPEnabled && e.pool != nil && rawProxyAddr != "" {
+			e.pool.MarkBad(rawProxyAddr)
 		}
 		return false
 	}
@@ -242,6 +298,95 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 		state.UpdateThreadStatus(threadName, "提交成功", &running)
 	}
 	return success
+}
+
+func (e *Engine) emit(threadName, statusText string, success, fail bool, state *models.ExecutionState) {
+	if e.handler == nil {
+		return
+	}
+	total := 0
+	if state.Config != nil {
+		total = state.Config.TargetNum
+	}
+	e.handler(StatusEvent{
+		ThreadName: threadName,
+		StatusText: statusText,
+		Success:    success,
+		Fail:       fail,
+		Current:    state.GetCurNum(),
+		Total:      total,
+		Timestamp:  time.Now(),
+	})
+}
+
+func sampleIntervalDelay(bounds [2]int) time.Duration {
+	minSeconds := bounds[0]
+	maxSeconds := bounds[1]
+	if minSeconds < 0 {
+		minSeconds = 0
+	}
+	if maxSeconds < 0 {
+		maxSeconds = 0
+	}
+	if maxSeconds < minSeconds {
+		minSeconds, maxSeconds = maxSeconds, minSeconds
+	}
+	if maxSeconds == 0 {
+		return 0
+	}
+	seconds := minSeconds
+	if maxSeconds > minSeconds {
+		seconds = minSeconds + rand.Intn(maxSeconds-minSeconds+1)
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+var userAgentProfiles = map[string]string{
+	"wechat": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.44",
+	"mobile": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+	"pc":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
+func sampleUserAgent(cfg *models.ExecutionConfig) string {
+	if !cfg.RandomUserAgentEnabled {
+		return ""
+	}
+	keys := cfg.RandomUserAgentKeys
+	if len(keys) == 0 {
+		keys = []string{"wechat", "mobile", "pc"}
+	}
+
+	total := 0
+	for _, key := range keys {
+		if _, ok := userAgentProfiles[key]; !ok {
+			continue
+		}
+		weight := cfg.UserAgentRatios[key]
+		if weight <= 0 {
+			weight = 1
+		}
+		total += weight
+	}
+	if total <= 0 {
+		return ""
+	}
+
+	pick := rand.Intn(total)
+	for _, key := range keys {
+		ua, ok := userAgentProfiles[key]
+		if !ok {
+			continue
+		}
+		weight := cfg.UserAgentRatios[key]
+		if weight <= 0 {
+			weight = 1
+		}
+		if pick < weight {
+			return ua
+		}
+		pick -= weight
+	}
+	return ""
 }
 
 // ParseSurvey parses a survey URL using the appropriate provider.
