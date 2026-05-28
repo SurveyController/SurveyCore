@@ -1,0 +1,30 @@
+{
+  "url": "https://www.wjx.cn/vm/xxxxx.aspx",
+  "survey_provider": "wjx",
+  "target": 10,
+  "threads": 3,
+  "submit_interval": [0, 0],
+  "answer_duration": [10, 20],
+  "random_ip_enabled": false,
+  "proxy_source": "default",
+  "fail_stop_enabled": true,
+  "pause_on_aliyun_captcha": true,
+  "reliability_mode_enabled": true,
+  "psycho_target_alpha": 0.85,
+  "ai_mode": "free",
+  "ai_provider": "deepseek",
+  "question_entries": [
+    {
+      "question_type": "single",
+      "probabilities": [0.25, 0.25, 0.25, 0.25],
+      "option_count": 4,
+      "distribution_mode": "random"
+    },
+    {
+      "question_type": "multiple",
+      "probabilities": [0.5, 0.5, 0.3, 0.3],
+      "option_count": 4,
+      "distribution_mode": "custom"
+    }
+  ]
+}
