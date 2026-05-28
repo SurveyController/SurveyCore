@@ -12,6 +12,7 @@ import (
 
 	"github.com/SurveyController/SurveyConsole/internal/models"
 	"github.com/SurveyController/SurveyConsole/internal/network/httpclient"
+	"github.com/SurveyController/SurveyConsole/internal/providers/providerutil"
 	"github.com/SurveyController/SurveyConsole/internal/questions"
 )
 
@@ -91,7 +92,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	if ua == "" {
 		ua = defaultUA
 	}
-	duration := sampleAnswerDurationSeconds(cfg)
+	duration := providerutil.SampleAnswerDurationSeconds(cfg, 60, 60)
 
 	submitBody := buildSubmitBody(surveyID, hashValue, rawQuestions, actions, duration, ua)
 
@@ -1002,9 +1003,9 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 
 	configIdx := -1
 	if idx, ok := cfg.QuestionConfigIndexMap[meta.Num]; ok {
-		configIdx = parseConfigIdx(idx)
-	} else if idx, ok := providerConfigIndex(cfg, meta); ok {
-		configIdx = parseConfigIdx(idx)
+		configIdx = providerutil.ParseConfigIndex(idx)
+	} else if idx, ok := providerutil.ProviderConfigIndex(cfg, meta); ok {
+		configIdx = providerutil.ParseConfigIndex(idx)
 	}
 
 	switch typeCode {
@@ -1211,7 +1212,7 @@ func buildMultipleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestion
 	if configIdx >= 0 && configIdx < len(cfg.MultipleProb) {
 		copy(probs, cfg.MultipleProb[configIdx])
 	}
-	if allZero(probs) {
+	if providerutil.AllZero(probs) {
 		for i := range probs {
 			probs[i] = 1.0
 		}
@@ -1234,11 +1235,11 @@ func buildMultipleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestion
 func buildScaleAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, rawQ map[string]any, runtime *questions.RunContext) *TencentAnswerAction {
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.ScaleProb) {
-		if p, ok := toFloat64Slice(cfg.ScaleProb[configIdx]); ok {
+		if p, ok := providerutil.Float64Slice(cfg.ScaleProb[configIdx]); ok {
 			copy(probs, p)
 		}
 	}
-	if allZero(probs) {
+	if providerutil.AllZero(probs) {
 		for i := range probs {
 			probs[i] = 1.0
 		}
@@ -1269,9 +1270,9 @@ func buildMatrixAnswer(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	for i := 0; i < rows; i++ {
 		probs := make([]float64, optionCount)
 		if configIdx >= 0 && configIdx < len(cfg.MatrixProb) {
-			copy(probs, matrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
+			copy(probs, providerutil.MatrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
 		}
-		if allZero(probs) {
+		if providerutil.AllZero(probs) {
 			for j := range probs {
 				probs[j] = 1.0
 			}
@@ -1490,67 +1491,6 @@ func generateUUID() string {
 		rand.Int31n(0x3fff)|0x8000, rand.Int63n(0xffffffffffff))
 }
 
-func parseConfigIdx(s string) int {
-	var idx int
-	fmt.Sscanf(s, "%d", &idx)
-	return idx
-}
-
-func providerConfigIndex(cfg *models.ExecutionConfig, meta models.SurveyQuestionMeta) (string, bool) {
-	if cfg == nil || meta.ProviderQuestionID == "" {
-		return "", false
-	}
-	if key := models.MakeProviderQuestionKey(meta.Provider, meta.ProviderPageID, meta.ProviderQuestionID); key != "" {
-		if idx, ok := cfg.ProviderQuestionConfigIndexMap[key]; ok {
-			return idx, true
-		}
-	}
-	idx, ok := cfg.ProviderQuestionConfigIndexMap[meta.ProviderQuestionID]
-	return idx, ok
-}
-
-func allZero(probs []float64) bool {
-	for _, p := range probs {
-		if p != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func toFloat64Slice(v any) ([]float64, bool) {
-	if v == nil {
-		return nil, false
-	}
-	switch sl := v.(type) {
-	case []float64:
-		return sl, true
-	case []any:
-		result := make([]float64, 0, len(sl))
-		for _, item := range sl {
-			if f, ok := toFloat64(item); ok {
-				result = append(result, f)
-			}
-		}
-		return result, true
-	}
-	return nil, false
-}
-
-func toFloat64(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case float32:
-		return float64(n), true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	}
-	return 0, false
-}
-
 func getProbs(cfg *models.ExecutionConfig, configIdx, optionCount int, isDropdown bool) []float64 {
 	probs := make([]float64, optionCount)
 	source := cfg.SingleProb
@@ -1558,61 +1498,16 @@ func getProbs(cfg *models.ExecutionConfig, configIdx, optionCount int, isDropdow
 		source = cfg.DroplistProb
 	}
 	if configIdx >= 0 && configIdx < len(source) {
-		if p, ok := toFloat64Slice(source[configIdx]); ok {
+		if p, ok := providerutil.Float64Slice(source[configIdx]); ok {
 			copy(probs, p)
 		}
 	}
-	if allZero(probs) {
+	if providerutil.AllZero(probs) {
 		for i := range probs {
 			probs[i] = 1.0
 		}
 	}
 	return probs
-}
-
-func matrixRowProbabilities(raw any, rowIndex, optionCount int) []float64 {
-	probs := make([]float64, optionCount)
-	switch sl := raw.(type) {
-	case [][]float64:
-		if rowIndex < len(sl) {
-			copy(probs, sl[rowIndex])
-		}
-	case []any:
-		if rowIndex < len(sl) {
-			if row, ok := toFloat64Slice(sl[rowIndex]); ok {
-				copy(probs, row)
-			}
-			break
-		}
-		if row, ok := toFloat64Slice(sl); ok {
-			copy(probs, row)
-		}
-	default:
-		if row, ok := toFloat64Slice(raw); ok {
-			copy(probs, row)
-		}
-	}
-	return probs
-}
-
-func sampleAnswerDurationSeconds(cfg *models.ExecutionConfig) int {
-	if cfg != nil {
-		min := cfg.AnswerDurationRangeSeconds[0]
-		max := cfg.AnswerDurationRangeSeconds[1]
-		if min > 0 || max > 0 {
-			if min < 0 {
-				min = 0
-			}
-			if max < min {
-				max = min
-			}
-			if max == min {
-				return max
-			}
-			return min + rand.Intn(max-min+1)
-		}
-	}
-	return 60
 }
 
 func parseProxy(addr string) *string {

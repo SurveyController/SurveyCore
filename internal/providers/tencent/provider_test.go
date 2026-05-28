@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/SurveyController/SurveyConsole/internal/providers/providerutil"
 )
 
 func TestBuildSubmitBodyCoversChoiceTextAndMatrix(t *testing.T) {
@@ -71,7 +72,7 @@ func TestBuildSubmitBodyCoversChoiceTextAndMatrix(t *testing.T) {
 
 func TestSampleAnswerDurationSecondsAllowsFixedConfiguredRange(t *testing.T) {
 	cfg := &models.ExecutionConfig{AnswerDurationRangeSeconds: [2]int{45, 45}}
-	if got := sampleAnswerDurationSeconds(cfg); got != 45 {
+	if got := providerutil.SampleAnswerDurationSeconds(cfg, 60, 60); got != 45 {
 		t.Fatalf("sampleAnswerDurationSeconds fixed range = %d, want 45", got)
 	}
 }
@@ -90,11 +91,11 @@ func TestProviderConfigIndexPrefersFullKeyAndFallsBackToBareID(t *testing.T) {
 		},
 	}
 
-	if got, ok := providerConfigIndex(cfg, meta); !ok || got != "2" {
+	if got, ok := providerutil.ProviderConfigIndex(cfg, meta); !ok || got != "2" {
 		t.Fatalf("providerConfigIndex full key = %q/%v, want 2/true", got, ok)
 	}
 	delete(cfg.ProviderQuestionConfigIndexMap, fullKey)
-	if got, ok := providerConfigIndex(cfg, meta); !ok || got != "1" {
+	if got, ok := providerutil.ProviderConfigIndex(cfg, meta); !ok || got != "1" {
 		t.Fatalf("providerConfigIndex bare id = %q/%v, want 1/true", got, ok)
 	}
 }

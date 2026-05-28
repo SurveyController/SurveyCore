@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/SurveyController/SurveyConsole/internal/providers/providerutil"
 	"github.com/SurveyController/SurveyConsole/internal/questions"
 )
 
@@ -230,7 +231,7 @@ func buildSingleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 	// Check if we have a config entry for this question
 	configIdx := -1
 	if idx, ok := cfg.QuestionConfigIndexMap[questionNum]; ok {
-		configIdx = parseConfigIndex(idx)
+		configIdx = providerutil.ParseConfigIndex(idx)
 	}
 
 	switch typeCode {
@@ -351,9 +352,9 @@ func buildMatrixAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMe
 		// Get probabilities for this row
 		probs := make([]float64, optionCount)
 		if configIdx >= 0 && configIdx < len(cfg.MatrixProb) {
-			copy(probs, matrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
+			copy(probs, providerutil.MatrixRowProbabilities(cfg.MatrixProb[configIdx], i, optionCount))
 		}
-		if len(probs) == 0 || allZero(probs) {
+		if len(probs) == 0 || providerutil.AllZero(probs) {
 			for j := range probs {
 				probs[j] = 1.0 / float64(optionCount)
 			}
@@ -377,11 +378,11 @@ func buildScaleAction(cfg *models.ExecutionConfig, meta models.SurveyQuestionMet
 
 	probs := make([]float64, optionCount)
 	if configIdx >= 0 && configIdx < len(cfg.ScaleProb) {
-		if p, ok := toFloat64Slice(cfg.ScaleProb[configIdx]); ok {
+		if p, ok := providerutil.Float64Slice(cfg.ScaleProb[configIdx]); ok {
 			copy(probs, p)
 		}
 	}
-	if allZero(probs) {
+	if providerutil.AllZero(probs) {
 		for i := range probs {
 			probs[i] = 1.0 / float64(optionCount)
 		}
@@ -522,89 +523,16 @@ func getProbabilities(cfg *models.ExecutionConfig, configIdx int, optionCount in
 		source = cfg.DroplistProb
 	}
 	if configIdx >= 0 && configIdx < len(source) {
-		if p, ok := toFloat64Slice(source[configIdx]); ok {
+		if p, ok := providerutil.Float64Slice(source[configIdx]); ok {
 			copy(probs, p)
 		}
 	}
-	if allZero(probs) {
+	if providerutil.AllZero(probs) {
 		for i := range probs {
 			probs[i] = 1.0 / float64(optionCount)
 		}
 	}
 	return probs
-}
-
-func allZero(probs []float64) bool {
-	for _, p := range probs {
-		if p != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func toFloat64Slice(v any) ([]float64, bool) {
-	if v == nil {
-		return nil, false
-	}
-	switch sl := v.(type) {
-	case []float64:
-		return sl, true
-	case []any:
-		result := make([]float64, 0, len(sl))
-		for _, item := range sl {
-			if f, ok := toFloat64(item); ok {
-				result = append(result, f)
-			}
-		}
-		return result, true
-	}
-	return nil, false
-}
-
-func toFloat64(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case float32:
-		return float64(n), true
-	case int:
-		return float64(n), true
-	case int64:
-		return float64(n), true
-	}
-	return 0, false
-}
-
-func matrixRowProbabilities(raw any, rowIndex, optionCount int) []float64 {
-	probs := make([]float64, optionCount)
-	switch sl := raw.(type) {
-	case [][]float64:
-		if rowIndex < len(sl) {
-			copy(probs, sl[rowIndex])
-		}
-	case []any:
-		if rowIndex < len(sl) {
-			if row, ok := toFloat64Slice(sl[rowIndex]); ok {
-				copy(probs, row)
-			}
-			break
-		}
-		if row, ok := toFloat64Slice(sl); ok {
-			copy(probs, row)
-		}
-	default:
-		if row, ok := toFloat64Slice(raw); ok {
-			copy(probs, row)
-		}
-	}
-	return probs
-}
-
-func parseConfigIndex(s string) int {
-	var idx int
-	fmt.Sscanf(s, "%d", &idx)
-	return idx
 }
 
 func intFromAny(value any) int {
