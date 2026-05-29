@@ -85,6 +85,9 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
 
 # 启用随机 IP
 ./surveyconsole run -config config.json -random-ip -proxy-source custom -custom-proxy "http://api.example.com/proxy"
+
+# 使用官方随机 IP 参数
+./surveyconsole run -config config.json -random-ip -proxy-source default -random-ip-user-id 123 -random-ip-device-id "device-id" -proxy-area 110000 -random-ip-minute 3
 ```
 
 ### 二维码解析
@@ -103,7 +106,7 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
 
 | 命令 | 说明 | 主要参数 |
 |------|------|----------|
-| `run` | 运行提交任务 | `-config`, `-url`, `-target`, `-threads`, `-random-ip` |
+| `run` | 运行提交任务 | `-config`, `-url`, `-target`, `-threads`, `-random-ip`, `-proxy-source`, `-custom-proxy`, `-random-ip-user-id`, `-random-ip-device-id`, `-proxy-area`, `-ip-extract-endpoint`, `-random-ip-minute` |
 | `parse` | 解析问卷结构 | `-url` |
 | `config` | 配置管理 | `-create`, `-url`, `-output` |
 | `qr` | 解析二维码 | `-image` |
@@ -121,6 +124,12 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
   "answer_duration": [10, 20],
   "random_ip_enabled": false,
   "proxy_source": "default",
+  "custom_proxy_api": "",
+  "proxy_area_code": "110000",
+  "random_ip_user_id": 123,
+  "random_ip_device_id": "device-id",
+  "ip_extract_endpoint": "https://api-wjx.hungrym0.top/api/ip/extract",
+  "random_ip_lease_minute": 3,
   "question_entries": [
     {
       "question_type": "single",

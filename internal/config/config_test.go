@@ -8,11 +8,20 @@ import (
 
 func TestBuildExecutionConfigKeepsQuestionEntryIndices(t *testing.T) {
 	q1, q2, q3, q4 := 1, 2, 3, 4
+	area := "110000"
 	cfg := &models.RuntimeConfig{
 		URL:                  "https://www.wjx.cn/vm/test.aspx",
 		SurveyProvider:       models.ProviderWJX,
 		Target:               10,
 		Threads:              3,
+		RandomIPEnabled:      true,
+		ProxySource:          "default",
+		CustomProxyAPI:       "https://proxy.example.test/custom",
+		ProxyAreaCode:        &area,
+		RandomIPUserID:       77,
+		RandomIPDeviceID:     "device-77",
+		IPExtractEndpoint:    "https://proxy.example.test/extract",
+		RandomIPLeaseMinute:  3,
 		RandomUAEnabled:      true,
 		RandomUAKeys:         []string{"pc", "mobile"},
 		RandomUARatios:       map[string]int{"pc": 70, "mobile": 30},
@@ -52,6 +61,15 @@ func TestBuildExecutionConfigKeepsQuestionEntryIndices(t *testing.T) {
 	}
 	if !execCfg.RandomUserAgentEnabled || len(execCfg.RandomUserAgentKeys) != 2 {
 		t.Fatal("random user agent settings were not copied")
+	}
+	if !execCfg.RandomProxyIPEnabled || execCfg.ProxySource != "default" || execCfg.ProxyAreaCode != area {
+		t.Fatalf("random proxy settings = enabled %v source %q area %q", execCfg.RandomProxyIPEnabled, execCfg.ProxySource, execCfg.ProxyAreaCode)
+	}
+	if execCfg.CustomProxyAPI != cfg.CustomProxyAPI || execCfg.RandomIPUserID != 77 || execCfg.RandomIPDeviceID != "device-77" {
+		t.Fatalf("random proxy credentials = api %q user %d device %q", execCfg.CustomProxyAPI, execCfg.RandomIPUserID, execCfg.RandomIPDeviceID)
+	}
+	if execCfg.IPExtractEndpoint != cfg.IPExtractEndpoint || execCfg.RandomIPLeaseMinute != 3 {
+		t.Fatalf("random proxy endpoint/minute = %q/%d", execCfg.IPExtractEndpoint, execCfg.RandomIPLeaseMinute)
 	}
 }
 

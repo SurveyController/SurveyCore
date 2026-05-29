@@ -21,6 +21,10 @@ type RuntimeConfig struct {
 	ProxySource            string               `json:"proxy_source,omitempty"`
 	CustomProxyAPI         string               `json:"custom_proxy_api,omitempty"`
 	ProxyAreaCode          *string              `json:"proxy_area_code,omitempty"`
+	RandomIPUserID         int                  `json:"random_ip_user_id,omitempty"`
+	RandomIPDeviceID       string               `json:"random_ip_device_id,omitempty"`
+	IPExtractEndpoint      string               `json:"ip_extract_endpoint,omitempty"`
+	RandomIPLeaseMinute    int                  `json:"random_ip_lease_minute,omitempty"`
 	RandomUAEnabled        bool                 `json:"random_ua_enabled,omitempty"`
 	RandomUAKeys           []string             `json:"random_ua_keys,omitempty"`
 	RandomUARatios         map[string]int       `json:"random_ua_ratios,omitempty"`

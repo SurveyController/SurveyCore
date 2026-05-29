@@ -89,6 +89,7 @@ func cmdRun(args []string) {
 	randomIPUserIDFlag := fs.Int("random-ip-user-id", 0, "官方随机 IP 用户 ID")
 	randomIPDeviceIDFlag := fs.String("random-ip-device-id", "", "官方随机 IP 设备 ID")
 	ipExtractEndpointFlag := fs.String("ip-extract-endpoint", "", "官方随机 IP 提取接口")
+	randomIPMinuteFlag := fs.Int("random-ip-minute", 0, "官方随机 IP 租期分钟 (1/3/5/10/15/30)")
 	verboseFlag := fs.Bool("verbose", false, "详细日志")
 	fs.Parse(args)
 
@@ -137,6 +138,18 @@ func cmdRun(args []string) {
 		area := *proxyAreaFlag
 		cfg.ProxyAreaCode = &area
 	}
+	if *randomIPUserIDFlag > 0 {
+		cfg.RandomIPUserID = *randomIPUserIDFlag
+	}
+	if *randomIPDeviceIDFlag != "" {
+		cfg.RandomIPDeviceID = *randomIPDeviceIDFlag
+	}
+	if *ipExtractEndpointFlag != "" {
+		cfg.IPExtractEndpoint = *ipExtractEndpointFlag
+	}
+	if *randomIPMinuteFlag > 0 {
+		cfg.RandomIPLeaseMinute = *randomIPMinuteFlag
+	}
 
 	config.MergeDefaults(cfg)
 
@@ -184,17 +197,7 @@ func cmdRun(args []string) {
 	// Create proxy pool if needed
 	var pool *proxy.Pool
 	if cfg.RandomIPEnabled {
-		areaCode := ""
-		if cfg.ProxyAreaCode != nil {
-			areaCode = *cfg.ProxyAreaCode
-		}
-		pool = proxy.NewPool(
-			cfg.ProxySource,
-			cfg.CustomProxyAPI,
-			proxy.WithOfficialAreaCode(areaCode),
-			proxy.WithOfficialCredentials(*randomIPUserIDFlag, *randomIPDeviceIDFlag),
-			proxy.WithOfficialEndpoint(*ipExtractEndpointFlag),
-		)
+		pool = newProxyPoolFromRuntimeConfig(cfg)
 		fmt.Println("随机 IP 已启用")
 	}
 
@@ -217,6 +220,21 @@ func cmdRun(args []string) {
 
 	// Report results
 	fmt.Printf("\n执行完成: 成功 %d, 失败 %d\n", state.GetCurNum(), state.GetCurFail())
+}
+
+func newProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
+	areaCode := ""
+	if cfg.ProxyAreaCode != nil {
+		areaCode = *cfg.ProxyAreaCode
+	}
+	return proxy.NewPool(
+		cfg.ProxySource,
+		cfg.CustomProxyAPI,
+		proxy.WithOfficialAreaCode(areaCode),
+		proxy.WithOfficialCredentials(cfg.RandomIPUserID, cfg.RandomIPDeviceID),
+		proxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
+		proxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
+	)
 }
 
 func cmdParse(args []string) {

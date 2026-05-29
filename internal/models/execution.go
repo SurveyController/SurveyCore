@@ -84,6 +84,12 @@ type ExecutionConfig struct {
 
 	RandomProxyIPEnabled   bool           `json:"random_proxy_ip_enabled"`
 	ProxySource            string         `json:"proxy_source"`
+	CustomProxyAPI         string         `json:"custom_proxy_api,omitempty"`
+	ProxyAreaCode          string         `json:"proxy_area_code,omitempty"`
+	RandomIPUserID         int            `json:"random_ip_user_id,omitempty"`
+	RandomIPDeviceID       string         `json:"random_ip_device_id,omitempty"`
+	IPExtractEndpoint      string         `json:"ip_extract_endpoint,omitempty"`
+	RandomIPLeaseMinute    int            `json:"random_ip_lease_minute,omitempty"`
 	RandomUserAgentEnabled bool           `json:"random_user_agent_enabled"`
 	RandomUserAgentKeys    []string       `json:"random_user_agent_keys,omitempty"`
 	UserAgentRatios        map[string]int `json:"user_agent_ratios"`

@@ -12,6 +12,14 @@ func TestRuntimeConfigSerialization(t *testing.T) {
 	cfg.URL = "https://www.wjx.cn/vm/test.aspx"
 	cfg.Target = 10
 	cfg.Threads = 3
+	area := "110000"
+	cfg.RandomIPEnabled = true
+	cfg.ProxySource = "default"
+	cfg.ProxyAreaCode = &area
+	cfg.RandomIPUserID = 77
+	cfg.RandomIPDeviceID = "device-77"
+	cfg.IPExtractEndpoint = "https://proxy.example.test/extract"
+	cfg.RandomIPLeaseMinute = 3
 
 	data, err := models.SerializeRuntimeConfig(&cfg)
 	if err != nil {
@@ -31,6 +39,15 @@ func TestRuntimeConfigSerialization(t *testing.T) {
 	}
 	if parsed.Threads != cfg.Threads {
 		t.Errorf("Threads mismatch: got %d, want %d", parsed.Threads, cfg.Threads)
+	}
+	if !parsed.RandomIPEnabled || parsed.ProxyAreaCode == nil || *parsed.ProxyAreaCode != area {
+		t.Errorf("random IP area mismatch: got enabled=%v area=%v", parsed.RandomIPEnabled, parsed.ProxyAreaCode)
+	}
+	if parsed.RandomIPUserID != 77 || parsed.RandomIPDeviceID != "device-77" {
+		t.Errorf("random IP credentials mismatch: got %d/%q", parsed.RandomIPUserID, parsed.RandomIPDeviceID)
+	}
+	if parsed.IPExtractEndpoint != cfg.IPExtractEndpoint || parsed.RandomIPLeaseMinute != 3 {
+		t.Errorf("random IP endpoint/minute mismatch: got %q/%d", parsed.IPExtractEndpoint, parsed.RandomIPLeaseMinute)
 	}
 }
 
