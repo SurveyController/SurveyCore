@@ -70,6 +70,7 @@ func printUsage() {
 
 示例:
   surveycontroller run -config config.json -target 10 -threads 3
+  surveycontroller run -config config.json -reverse-fill -reverse-fill-source samples.xlsx
   surveycontroller parse -url "https://www.wjx.cn/vm/xxxxx.aspx"
   surveycontroller config -create -url "https://www.wjx.cn/vm/xxxxx.aspx"
   surveycontroller qr -image qrcode.png
@@ -90,6 +91,11 @@ func cmdRun(args []string) {
 	randomIPDeviceIDFlag := fs.String("random-ip-device-id", "", "官方随机 IP 设备 ID")
 	ipExtractEndpointFlag := fs.String("ip-extract-endpoint", "", "官方随机 IP 提取接口")
 	randomIPMinuteFlag := fs.Int("random-ip-minute", 0, "官方随机 IP 租期分钟 (1/3/5/10/15/30)")
+	reverseFillFlag := fs.Bool("reverse-fill", false, "启用反填样本")
+	reverseFillSourceFlag := fs.String("reverse-fill-source", "", "反填样本文件路径 (CSV/Excel)")
+	reverseFillFormatFlag := fs.String("reverse-fill-format", "", "反填样本格式 (auto/wjx_sequence/wjx_score/wjx_text)")
+	reverseFillStartRowFlag := fs.Int("reverse-fill-start-row", 0, "反填样本起始数据行")
+	reverseFillThreadsFlag := fs.Int("reverse-fill-threads", 0, "反填样本并发线程数")
 	verboseFlag := fs.Bool("verbose", false, "详细日志")
 	fs.Parse(args)
 
@@ -114,42 +120,24 @@ func cmdRun(args []string) {
 		}
 	}
 
-	// Override from flags
-	if *urlFlag != "" {
-		cfg.URL = *urlFlag
-	}
-	if *targetFlag > 0 {
-		cfg.Target = *targetFlag
-	}
-	if *threadsFlag > 0 {
-		cfg.Threads = *threadsFlag
-	}
-	if *randomIPFlag {
-		cfg.RandomIPEnabled = true
-	}
-	if *proxySourceFlag != "" {
-		cfg.ProxySource = *proxySourceFlag
-	}
-	if *customProxyFlag != "" {
-		cfg.CustomProxyAPI = *customProxyFlag
-		cfg.ProxySource = "custom"
-	}
-	if *proxyAreaFlag != "" {
-		area := *proxyAreaFlag
-		cfg.ProxyAreaCode = &area
-	}
-	if *randomIPUserIDFlag > 0 {
-		cfg.RandomIPUserID = *randomIPUserIDFlag
-	}
-	if *randomIPDeviceIDFlag != "" {
-		cfg.RandomIPDeviceID = *randomIPDeviceIDFlag
-	}
-	if *ipExtractEndpointFlag != "" {
-		cfg.IPExtractEndpoint = *ipExtractEndpointFlag
-	}
-	if *randomIPMinuteFlag > 0 {
-		cfg.RandomIPLeaseMinute = *randomIPMinuteFlag
-	}
+	applyRunOverrides(cfg, runOverrides{
+		URL:                   *urlFlag,
+		Target:                *targetFlag,
+		Threads:               *threadsFlag,
+		RandomIPEnabled:       *randomIPFlag,
+		ProxySource:           *proxySourceFlag,
+		CustomProxyAPI:        *customProxyFlag,
+		ProxyAreaCode:         *proxyAreaFlag,
+		RandomIPUserID:        *randomIPUserIDFlag,
+		RandomIPDeviceID:      *randomIPDeviceIDFlag,
+		IPExtractEndpoint:     *ipExtractEndpointFlag,
+		RandomIPLeaseMinute:   *randomIPMinuteFlag,
+		ReverseFillEnabled:    *reverseFillFlag,
+		ReverseFillSourcePath: *reverseFillSourceFlag,
+		ReverseFillFormat:     *reverseFillFormatFlag,
+		ReverseFillStartRow:   *reverseFillStartRowFlag,
+		ReverseFillThreads:    *reverseFillThreadsFlag,
+	})
 
 	config.MergeDefaults(cfg)
 
@@ -220,6 +208,79 @@ func cmdRun(args []string) {
 
 	// Report results
 	fmt.Printf("\n执行完成: 成功 %d, 失败 %d\n", state.GetCurNum(), state.GetCurFail())
+}
+
+type runOverrides struct {
+	URL                   string
+	Target                int
+	Threads               int
+	RandomIPEnabled       bool
+	ProxySource           string
+	CustomProxyAPI        string
+	ProxyAreaCode         string
+	RandomIPUserID        int
+	RandomIPDeviceID      string
+	IPExtractEndpoint     string
+	RandomIPLeaseMinute   int
+	ReverseFillEnabled    bool
+	ReverseFillSourcePath string
+	ReverseFillFormat     string
+	ReverseFillStartRow   int
+	ReverseFillThreads    int
+}
+
+func applyRunOverrides(cfg *models.RuntimeConfig, opts runOverrides) {
+	if opts.URL != "" {
+		cfg.URL = opts.URL
+	}
+	if opts.Target > 0 {
+		cfg.Target = opts.Target
+	}
+	if opts.Threads > 0 {
+		cfg.Threads = opts.Threads
+	}
+	if opts.RandomIPEnabled {
+		cfg.RandomIPEnabled = true
+	}
+	if opts.ProxySource != "" {
+		cfg.ProxySource = opts.ProxySource
+	}
+	if opts.CustomProxyAPI != "" {
+		cfg.CustomProxyAPI = opts.CustomProxyAPI
+		cfg.ProxySource = "custom"
+	}
+	if opts.ProxyAreaCode != "" {
+		area := opts.ProxyAreaCode
+		cfg.ProxyAreaCode = &area
+	}
+	if opts.RandomIPUserID > 0 {
+		cfg.RandomIPUserID = opts.RandomIPUserID
+	}
+	if opts.RandomIPDeviceID != "" {
+		cfg.RandomIPDeviceID = opts.RandomIPDeviceID
+	}
+	if opts.IPExtractEndpoint != "" {
+		cfg.IPExtractEndpoint = opts.IPExtractEndpoint
+	}
+	if opts.RandomIPLeaseMinute > 0 {
+		cfg.RandomIPLeaseMinute = opts.RandomIPLeaseMinute
+	}
+	if opts.ReverseFillEnabled {
+		cfg.ReverseFillEnabled = true
+	}
+	if opts.ReverseFillSourcePath != "" {
+		cfg.ReverseFillEnabled = true
+		cfg.ReverseFillSourcePath = opts.ReverseFillSourcePath
+	}
+	if opts.ReverseFillFormat != "" {
+		cfg.ReverseFillFormat = opts.ReverseFillFormat
+	}
+	if opts.ReverseFillStartRow > 0 {
+		cfg.ReverseFillStartRow = opts.ReverseFillStartRow
+	}
+	if opts.ReverseFillThreads > 0 {
+		cfg.ReverseFillThreads = opts.ReverseFillThreads
+	}
 }
 
 func newProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {

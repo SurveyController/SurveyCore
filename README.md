@@ -88,6 +88,9 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
 
 # 使用官方随机 IP 参数
 ./surveyconsole run -config config.json -random-ip -proxy-source default -random-ip-user-id 123 -random-ip-device-id "device-id" -proxy-area 110000 -random-ip-minute 3
+
+# 启用反填样本
+./surveyconsole run -config config.json -reverse-fill -reverse-fill-source samples.xlsx -reverse-fill-format auto -reverse-fill-start-row 1 -reverse-fill-threads 1
 ```
 
 ### 二维码解析
@@ -106,7 +109,7 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
 
 | 命令 | 说明 | 主要参数 |
 |------|------|----------|
-| `run` | 运行提交任务 | `-config`, `-url`, `-target`, `-threads`, `-random-ip`, `-proxy-source`, `-custom-proxy`, `-random-ip-user-id`, `-random-ip-device-id`, `-proxy-area`, `-ip-extract-endpoint`, `-random-ip-minute` |
+| `run` | 运行提交任务 | `-config`, `-url`, `-target`, `-threads`, `-random-ip`, `-proxy-source`, `-custom-proxy`, `-random-ip-user-id`, `-random-ip-device-id`, `-proxy-area`, `-ip-extract-endpoint`, `-random-ip-minute`, `-reverse-fill`, `-reverse-fill-source`, `-reverse-fill-format`, `-reverse-fill-start-row`, `-reverse-fill-threads` |
 | `parse` | 解析问卷结构 | `-url` |
 | `config` | 配置管理 | `-create`, `-url`, `-output` |
 | `qr` | 解析二维码 | `-image` |
@@ -130,6 +133,11 @@ GitHub Actions 会在 `main` 和 `rewrite` 分支推送时自动运行同一组 
   "random_ip_device_id": "device-id",
   "ip_extract_endpoint": "https://api-wjx.hungrym0.top/api/ip/extract",
   "random_ip_lease_minute": 3,
+  "reverse_fill_enabled": false,
+  "reverse_fill_source_path": "samples.xlsx",
+  "reverse_fill_format": "auto",
+  "reverse_fill_start_row": 1,
+  "reverse_fill_threads": 1,
   "question_entries": [
     {
       "question_type": "single",
@@ -206,6 +214,8 @@ SurveyConsole/
 ### 反填样本
 
 从历史 CSV/Excel 样本中抽取答案，并在运行时按线程分配给题目生成器。当前运行时会和一致性规则、文本生成、心理计量计划一起处理，避免把反填逻辑散落到各个 provider。
+
+反填可通过配置文件字段启用，也可以在 `run` 命令中用 `-reverse-fill-source` 直接启用；`-reverse-fill-format` 支持 `auto`、`wjx_sequence`、`wjx_score`、`wjx_text`。
 
 ## 当前运行模式
 
