@@ -2,7 +2,8 @@ package models
 
 import (
 	"encoding/json"
-	"strings"
+
+	"github.com/SurveyController/SurveyConsole/internal/domain"
 )
 
 // Default UA keys for random user agent
@@ -90,18 +91,12 @@ func DeserializeRuntimeConfig(data []byte) (*RuntimeConfig, error) {
 
 // Provider constants
 const (
-	ProviderWJX     = "wjx"
-	ProviderQQ      = "qq"
-	ProviderCredamo = "credamo"
+	ProviderWJX     = domain.ProviderWJX
+	ProviderQQ      = domain.ProviderQQ
+	ProviderCredamo = domain.ProviderCredamo
 )
 
 // MakeProviderQuestionKey creates a unique key for a provider question.
 func MakeProviderQuestionKey(provider, pageID, questionID string) string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	pageID = strings.TrimSpace(pageID)
-	questionID = strings.TrimSpace(questionID)
-	if provider == "" || pageID == "" || questionID == "" {
-		return ""
-	}
-	return provider + ":" + pageID + ":" + questionID
+	return domain.MakeProviderQuestionKey(provider, pageID, questionID)
 }

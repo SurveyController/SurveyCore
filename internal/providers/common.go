@@ -4,13 +4,15 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/SurveyController/SurveyConsole/internal/domain"
 )
 
 // Provider constants
 const (
-	ProviderWJX     = "wjx"
-	ProviderQQ      = "qq"
-	ProviderCredamo = "credamo"
+	ProviderWJX     = domain.ProviderWJX
+	ProviderQQ      = domain.ProviderQQ
+	ProviderCredamo = domain.ProviderCredamo
 )
 
 // SupportedProviders is the set of all supported provider names.
@@ -89,12 +91,7 @@ func IsCredamoSurveyURL(urlValue string) bool {
 // MakeProviderQuestionKey creates a unique key for a provider question.
 func MakeProviderQuestionKey(provider, pageID, questionID string) string {
 	provider = NormalizeSurveyProvider(provider, ProviderWJX)
-	pageID = strings.TrimSpace(pageID)
-	questionID = strings.TrimSpace(questionID)
-	if pageID == "" || questionID == "" {
-		return ""
-	}
-	return provider + ":" + pageID + ":" + questionID
+	return domain.MakeProviderQuestionKey(provider, pageID, questionID)
 }
 
 // GetProviderQuestionKey is an alias for use from models package.
