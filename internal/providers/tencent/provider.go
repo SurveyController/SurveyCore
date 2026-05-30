@@ -18,9 +18,14 @@ import (
 
 const (
 	ProviderName = "qq"
-	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
 	apiBase      = "https://wj.qq.com/api/v2/respondent/surveys"
 	localeOrder  = "zhs,zht,zh,en"
+)
+
+const (
+	SubmitSuccess  = "success"
+	SubmitRejected = "rejected"
 )
 
 var (
@@ -43,16 +48,19 @@ func (p *Provider) ParseSurvey(ctx context.Context, surveyURL string) (*models.S
 		return nil, err
 	}
 
-	// Establish session
-	if _, err := fetchSession(ctx, surveyID, hashValue); err != nil {
+	// Establish session, matching the Python runtime's initial handshake.
+	_, cookieHeader, err := fetchSession(ctx, surveyID, hashValue)
+	if err != nil {
 		return nil, fmt.Errorf("建立会话失败: %w", err)
 	}
 
-	// Fetch questions
-	questions, title, err := fetchQuestions(ctx, surveyID, hashValue)
+	// Fetch questions without X-Answer-Session. Tencent rejects that header on
+	// some parse-time requests with INVALIDARGUMENT.
+	rawQuestions, title, err := fetchRawQuestionsWithSession(ctx, surveyID, hashValue, "", cookieHeader)
 	if err != nil {
 		return nil, fmt.Errorf("获取题目失败: %w", err)
 	}
+	questions := standardizeQuestions(rawQuestions)
 
 	return &models.SurveyDefinition{
 		Provider:  ProviderName,
@@ -73,13 +81,13 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	}
 
 	// Fetch session and extract answer_session_id
-	answerSessionID, err := fetchSession(ctx, surveyID, hashValue)
+	answerSessionID, cookieHeader, err := fetchSession(ctx, surveyID, hashValue)
 	if err != nil {
 		return false, fmt.Errorf("建立会话失败: %w", err)
 	}
 
 	// Fetch raw questions with session header
-	rawQuestions, _, err := fetchRawQuestionsWithSession(ctx, surveyID, hashValue, answerSessionID)
+	rawQuestions, _, err := fetchRawQuestionsWithSession(ctx, surveyID, hashValue, answerSessionID, cookieHeader)
 	if err != nil {
 		return false, fmt.Errorf("获取题目失败: %w", err)
 	}
@@ -112,6 +120,9 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	if answerSessionID != "" {
 		submitHeaders["X-Answer-Session"] = answerSessionID
 	}
+	if cookieHeader != "" {
+		submitHeaders["Cookie"] = cookieHeader
+	}
 	resp, err := httpclient.Post(ctx, submitURL, string(bodyBytes), submitHeaders, proxyAddr, 20*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("提交失败: %w", err)
@@ -120,7 +131,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	// Check response
 	var result map[string]any
 	if err := json.Unmarshal(resp.Body, &result); err == nil {
-		if code, ok := result["code"].(float64); ok && code == 0 {
+		if classifyQQSubmitPayload(result) == SubmitSuccess {
 			return true, nil
 		}
 		if msg, ok := result["message"].(string); ok {
@@ -130,11 +141,19 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 
 	// Check if response contains success indicators
 	text := string(resp.Body)
-	if strings.Contains(text, `"code":0`) || strings.Contains(text, `"success"`) {
+	if strings.Contains(text, `"code":0`) || strings.Contains(text, `"code":"OK"`) || strings.Contains(text, `"success"`) {
 		return true, nil
 	}
 
 	return false, fmt.Errorf("提交失败: %s", truncate(text, 200))
+}
+
+func classifyQQSubmitPayload(payload map[string]any) string {
+	code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(payload["code"])))
+	if code == "OK" || code == "0" {
+		return SubmitSuccess
+	}
+	return SubmitRejected
 }
 
 func extractQQIdentifiers(surveyURL string) (string, string, error) {
@@ -145,65 +164,72 @@ func extractQQIdentifiers(surveyURL string) (string, string, error) {
 	return matches[1], matches[2], nil
 }
 
-func fetchSession(ctx context.Context, surveyID, hashValue string) (string, error) {
-	url := fmt.Sprintf("%s/%s/session?hash=%s&_=%d", apiBase, surveyID, hashValue, time.Now().UnixMilli())
-	resp, err := httpclient.Get(ctx, url, map[string]string{
-		"User-Agent": defaultUA,
-		"Referer":    fmt.Sprintf("https://wj.qq.com/s2/%s/%s/", surveyID, hashValue),
-	}, nil, 10*time.Second)
+func fetchSession(ctx context.Context, surveyID, hashValue string) (string, string, error) {
+	url := fmt.Sprintf("%s/%s/session?_=%d&hash=%s", apiBase, surveyID, time.Now().UnixMilli(), hashValue)
+	resp, err := httpclient.Get(ctx, url, qqAPIHeaders(surveyID, hashValue), nil, 10*time.Second)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	cookieHeader := responseCookieHeader(resp)
 
 	// Extract answer_session_id from response
 	var result map[string]any
 	if err := json.Unmarshal(resp.Body, &result); err == nil {
 		if data, ok := result["data"].(map[string]any); ok {
 			if sessionID, ok := data["answer_session_id"].(string); ok {
-				return sessionID, nil
+				return sessionID, cookieHeader, nil
 			}
 		}
 	}
 	// Session ID not found - continue without it
-	return "", nil
+	return "", cookieHeader, nil
 }
 
-func fetchRawQuestionsWithSession(ctx context.Context, surveyID, hashValue, sessionID string) ([]map[string]any, string, error) {
+func fetchRawQuestionsWithSession(ctx context.Context, surveyID, hashValue, sessionID, cookieHeader string) ([]map[string]any, string, error) {
+	var lastErr error
 	for _, locale := range strings.Split(localeOrder, ",") {
-		questionsURL := fmt.Sprintf("%s/%s/questions?hash=%s&locale=%s&_=%d",
-			apiBase, surveyID, hashValue, locale, time.Now().UnixMilli())
+		questionsURL := fmt.Sprintf("%s/%s/questions?_=%d&hash=%s&locale=%s",
+			apiBase, surveyID, time.Now().UnixMilli(), hashValue, locale)
 
-		headers := map[string]string{
-			"User-Agent": defaultUA,
-			"Referer":    fmt.Sprintf("https://wj.qq.com/s2/%s/%s/", surveyID, hashValue),
-		}
+		headers := qqAPIHeaders(surveyID, hashValue)
 		if sessionID != "" {
 			headers["X-Answer-Session"] = sessionID
+		}
+		if cookieHeader != "" {
+			headers["Cookie"] = cookieHeader
 		}
 
 		resp, err := httpclient.Get(ctx, questionsURL, headers, nil, 10*time.Second)
 		if err != nil {
+			lastErr = err
 			continue
 		}
 
 		var result map[string]any
 		if err := json.Unmarshal(resp.Body, &result); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := ensureQQAPIOK(result, "questions"); err != nil {
+			lastErr = err
 			continue
 		}
 
 		data, ok := result["data"].(map[string]any)
 		if !ok {
+			lastErr = fmt.Errorf("题目接口缺少 data 对象")
 			continue
 		}
 
 		// Get title from meta
 		title := ""
-		metaURL := fmt.Sprintf("%s/%s/meta?hash=%s&locale=%s&_=%d",
-			apiBase, surveyID, hashValue, locale, time.Now().UnixMilli())
+		metaURL := fmt.Sprintf("%s/%s/meta?_=%d&hash=%s&locale=%s",
+			apiBase, surveyID, time.Now().UnixMilli(), hashValue, locale)
 		metaResp, err := httpclient.Get(ctx, metaURL, headers, nil, 10*time.Second)
 		if err == nil {
 			var metaResult map[string]any
 			if json.Unmarshal(metaResp.Body, &metaResult) == nil {
+				_ = ensureQQAPIOK(metaResult, "meta")
 				if metaData, ok := metaResult["data"].(map[string]any); ok {
 					if t, ok := metaData["title"].(string); ok {
 						title = t
@@ -221,9 +247,46 @@ func fetchRawQuestionsWithSession(ctx context.Context, surveyID, hashValue, sess
 			}
 			return questions, title, nil
 		}
+		lastErr = fmt.Errorf("题目接口未返回 questions 数组")
 	}
 
+	if lastErr != nil {
+		return nil, "", fmt.Errorf("无法获取腾讯问卷题目: %w", lastErr)
+	}
 	return nil, "", fmt.Errorf("无法获取腾讯问卷题目")
+}
+
+func qqAPIHeaders(surveyID, hashValue string) map[string]string {
+	return map[string]string{
+		"User-Agent":      defaultUA,
+		"Accept":          "application/json, text/plain, */*",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"Connection":      "close",
+		"Origin":          "https://wj.qq.com",
+		"Referer":         fmt.Sprintf("https://wj.qq.com/s2/%s/%s/", surveyID, hashValue),
+	}
+}
+
+func responseCookieHeader(resp *httpclient.Response) string {
+	if resp == nil {
+		return ""
+	}
+	var cookies []string
+	for _, raw := range resp.Headers.Values("Set-Cookie") {
+		part := strings.TrimSpace(strings.Split(raw, ";")[0])
+		if part != "" {
+			cookies = append(cookies, part)
+		}
+	}
+	return strings.Join(cookies, "; ")
+}
+
+func ensureQQAPIOK(payload map[string]any, endpoint string) error {
+	code := strings.ToUpper(strings.TrimSpace(fmt.Sprint(payload["code"])))
+	if code == "" || code == "OK" || code == "0" {
+		return nil
+	}
+	return fmt.Errorf("%s 接口返回异常: %s", endpoint, code)
 }
 
 func fetchQuestions(ctx context.Context, surveyID, hashValue string) ([]models.SurveyQuestionMeta, string, error) {
@@ -236,6 +299,10 @@ func fetchQuestions(ctx context.Context, surveyID, hashValue string) ([]models.S
 }
 
 func fetchRawQuestions(ctx context.Context, surveyID, hashValue string) ([]map[string]any, string, error) {
+	return fetchRawQuestionsWithSession(ctx, surveyID, hashValue, "", "")
+}
+
+func fetchRawQuestionsLegacy(ctx context.Context, surveyID, hashValue string) ([]map[string]any, string, error) {
 	// Try different locales
 	for _, locale := range strings.Split(localeOrder, ",") {
 		questionsURL := fmt.Sprintf("%s/%s/questions?hash=%s&locale=%s&_=%d",

@@ -75,8 +75,8 @@ func buildAnswerPlan(cfg *models.ExecutionConfig, state *models.ExecutionState, 
 		if action != nil {
 			actionByNum[meta.Num] = *action
 			plan.Actions = append(plan.Actions, *action)
-			if target := resolveJumpTarget(meta, *action); target != nil {
-				if *target > maxQuestionNum {
+			if target, terminates := resolveJumpTarget(meta, *action); target != nil {
+				if terminates || *target > maxQuestionNum {
 					plan.TerminatedEarly = true
 					return plan, nil
 				}
@@ -175,12 +175,13 @@ func conditionMet(actionByNum map[int]AnswerAction, condition map[string]any) bo
 	return false
 }
 
-func resolveJumpTarget(meta models.SurveyQuestionMeta, action AnswerAction) *int {
+func resolveJumpTarget(meta models.SurveyQuestionMeta, action AnswerAction) (*int, bool) {
 	if len(meta.JumpRules) == 0 {
-		return nil
+		return nil, false
 	}
 	selectedIndices := selectedIndexSet(action)
 	var unconditional *int
+	unconditionalTerminates := false
 	for _, rule := range meta.JumpRules {
 		target := intFromAny(rule["jumpto"])
 		if target <= 0 {
@@ -194,15 +195,16 @@ func resolveJumpTarget(meta models.SurveyQuestionMeta, action AnswerAction) *int
 			if unconditional == nil {
 				targetCopy := target
 				unconditional = &targetCopy
+				unconditionalTerminates = boolFromAny(rule["terminates_survey"])
 			}
 			continue
 		}
 		if selectedIndices[optionIndex] {
 			targetCopy := target
-			return &targetCopy
+			return &targetCopy, boolFromAny(rule["terminates_survey"])
 		}
 	}
-	return unconditional
+	return unconditional, unconditionalTerminates
 }
 
 func selectedIndexSet(action AnswerAction) map[int]bool {
@@ -559,6 +561,21 @@ func stringFromAny(value any, fallback string) string {
 		return strings.TrimSpace(text)
 	}
 	return fallback
+}
+
+func boolFromAny(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1"
+	case int:
+		return v != 0
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
 }
 
 func intSetFromAny(value any) map[int]bool {

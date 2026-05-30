@@ -24,6 +24,7 @@ const (
 	defaultUA    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 	signCipher   = "P96D0A7D0M8C3R2D0M1"
 	apiOrigin    = "https://www.credamo.com"
+	resolution   = "1920px*1080px"
 )
 
 var shortURLRe = regexp.MustCompile(`(?i)(?:^|/)([A-Za-z0-9_-]+)/?$`)
@@ -70,7 +71,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	}
 
 	// Fetch detail
-	detail, err := fetchDetail(ctx, shortURL)
+	detail, cookieHeader, err := fetchDetailSession(ctx, shortURL, "")
 	if err != nil {
 		return false, fmt.Errorf("获取详情失败: %w", err)
 	}
@@ -78,10 +79,11 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	rawQuestions := iterRawQuestions(detail)
 
 	// Init answer session
-	initData, err := initAnswer(ctx, shortURL)
+	initData, initCookieHeader, err := initAnswer(ctx, shortURL, cookieHeader)
 	if err != nil {
 		return false, fmt.Errorf("初始化答题会话失败: %w", err)
 	}
+	cookieHeader = mergeCookieHeaders(cookieHeader, initCookieHeader)
 
 	// Build actions
 	actions := buildAnswerActions(cfg, state, opts.ThreadName)
@@ -101,7 +103,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *models.ExecutionConf
 	timeCode := getString(initData, "timeCode")
 
 	proxyAddr := parseProxy(opts.ProxyAddress)
-	return saveAnswers(ctx, shortURL, answerToken, timeCode, body, ua, proxyAddr)
+	return saveAnswers(ctx, shortURL, answerToken, timeCode, body, ua, cookieHeader, proxyAddr)
 }
 
 func sampleAnswerStartTimeMS(cfg *models.ExecutionConfig, initStartedAtMS int64, durationSeconds int) int64 {
@@ -167,52 +169,64 @@ func lastPathSegment(path string) string {
 }
 
 func fetchDetail(ctx context.Context, shortURL string) (map[string]any, error) {
+	data, _, err := fetchDetailSession(ctx, shortURL, "")
+	return data, err
+}
+
+func fetchDetailSession(ctx context.Context, shortURL, cookieHeader string) (map[string]any, string, error) {
 	fetchURL := fmt.Sprintf("%s/v1/survey/noauth/detail/get/%s", apiOrigin, shortURL)
-	resp, err := httpclient.Get(ctx, fetchURL, map[string]string{
-		"User-Agent": defaultUA,
-		"Origin":     apiOrigin,
-		"Referer":    fmt.Sprintf("%s/s/%s", apiOrigin, shortURL),
-	}, nil, 15*time.Second)
-	if err != nil {
-		return nil, err
+	headers := credamoHeaders(shortURL, defaultUA, "", false)
+	if cookieHeader != "" {
+		headers["Cookie"] = cookieHeader
 	}
+	resp, err := httpclient.Get(ctx, fetchURL, headers, nil, 15*time.Second)
+	if err != nil {
+		return nil, "", err
+	}
+	nextCookieHeader := responseCookieHeader(resp)
 
 	var result map[string]any
 	if err := json.Unmarshal(resp.Body, &result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, nextCookieHeader, fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	data, ok := result["data"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("响应格式错误")
+		return nil, nextCookieHeader, fmt.Errorf("响应格式错误: %s", truncate(string(resp.Body), 200))
 	}
-	return data, nil
+	return data, nextCookieHeader, nil
 }
 
-func initAnswer(ctx context.Context, shortURL string) (map[string]any, error) {
-	initURL := fmt.Sprintf("%s/v1/survey/answer/noauth/init/%s?accountCode=CDM&resolution=1920px*1080px", apiOrigin, shortURL)
-	resp, err := httpclient.Get(ctx, initURL, map[string]string{
-		"User-Agent": defaultUA,
-		"Origin":     apiOrigin,
-		"Referer":    fmt.Sprintf("%s/s/%s", apiOrigin, shortURL),
-	}, nil, 10*time.Second)
-	if err != nil {
-		return nil, err
+func initAnswer(ctx context.Context, shortURL, cookieHeader string) (map[string]any, string, error) {
+	timeCode := newTimeCode()
+	initURL := fmt.Sprintf("%s/v1/survey/answer/noauth/init/%s?timeCode=%s&accountCode=CDM&resolution=%s",
+		apiOrigin, shortURL, url.QueryEscape(timeCode), url.QueryEscape(resolution))
+	headers := credamoHeaders(shortURL, defaultUA, "", false)
+	if cookieHeader != "" {
+		headers["Cookie"] = cookieHeader
 	}
+	resp, err := httpclient.Get(ctx, initURL, headers, nil, 10*time.Second)
+	if err != nil {
+		return nil, "", err
+	}
+	nextCookieHeader := responseCookieHeader(resp)
 
 	var result map[string]any
 	if err := json.Unmarshal(resp.Body, &result); err != nil {
-		return nil, err
+		return nil, nextCookieHeader, err
 	}
 
 	data, ok := result["data"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("初始化响应格式错误")
+		return nil, nextCookieHeader, fmt.Errorf("初始化响应格式错误: %s", truncate(string(resp.Body), 200))
 	}
-	return data, nil
+	if getString(data, "timeCode") == "" {
+		data["timeCode"] = timeCode
+	}
+	return data, nextCookieHeader, nil
 }
 
-func saveAnswers(ctx context.Context, shortURL, answerToken, timeCode string, body map[string]any, ua string, proxyAddr *string) (bool, error) {
+func saveAnswers(ctx context.Context, shortURL, answerToken, timeCode string, body map[string]any, ua, cookieHeader string, proxyAddr *string) (bool, error) {
 	nonce := fmt.Sprintf("%016x", rand.Int63())
 	timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
 	unionID := fmt.Sprintf("%016x", rand.Int63())
@@ -222,25 +236,27 @@ func saveAnswers(ctx context.Context, shortURL, answerToken, timeCode string, bo
 	saveURL := fmt.Sprintf("%s/v1/survey/answer/noauth/save?timeCode=%s&answerToken=%s",
 		apiOrigin, timeCode, answerToken)
 
-	bodyBytes, _ := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return false, fmt.Errorf("提交 JSON 构造失败: %w", err)
+	}
 
-	resp, err := httpclient.Post(ctx, saveURL, string(bodyBytes), map[string]string{
-		"User-Agent":   ua,
-		"Content-Type": "application/json",
-		"Origin":       apiOrigin,
-		"Referer":      fmt.Sprintf("%s/s/%s", apiOrigin, shortURL),
-		"unionId":      unionID,
-		"nonce":        nonce,
-		"timestamp":    timestamp,
-		"signature":    signature,
-	}, proxyAddr, 20*time.Second)
+	headers := credamoHeaders(shortURL, ua, answerToken, true)
+	headers["unionId"] = unionID
+	headers["nonce"] = nonce
+	headers["timestamp"] = timestamp
+	headers["signature"] = signature
+	if cookieHeader != "" {
+		headers["Cookie"] = cookieHeader
+	}
+	resp, err := httpclient.Post(ctx, saveURL, string(bodyBytes), headers, proxyAddr, 20*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("提交失败: %w", err)
 	}
 
 	var result map[string]any
 	if err := json.Unmarshal(resp.Body, &result); err == nil {
-		if code, ok := result["code"].(float64); ok && code == 0 {
+		if classifyCredamoPayload(result) == SubmitSuccess {
 			return true, nil
 		}
 		if msg, ok := result["message"].(string); ok {
@@ -249,10 +265,109 @@ func saveAnswers(ctx context.Context, shortURL, answerToken, timeCode string, bo
 	}
 
 	text := string(resp.Body)
-	if strings.Contains(text, `"code":0`) {
+	if strings.Contains(text, `"code":0`) || strings.Contains(text, `"success":true`) {
 		return true, nil
 	}
 	return false, fmt.Errorf("提交失败: %s", truncate(text, 200))
+}
+
+func credamoHeaders(shortURL, ua, answerToken string, jsonBody bool) map[string]string {
+	headers := map[string]string{
+		"User-Agent":      ua,
+		"Accept":          "application/json, text/plain, */*",
+		"Accept-Language": "zh-CN,zh;q=0.9",
+		"Referer":         fmt.Sprintf("%s/answer.html#/s/%s", apiOrigin, shortURL),
+	}
+	for key, value := range buildSignatureHeaders(answerToken) {
+		headers[key] = value
+	}
+	if jsonBody {
+		headers["Origin"] = apiOrigin
+		headers["Content-Type"] = "application/json"
+	}
+	return headers
+}
+
+func buildSignatureHeaders(answerToken string) map[string]string {
+	nonce := randomCredamoToken(16)
+	timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
+	unionID := randomCredamoToken(10)
+	return map[string]string{
+		"unionId":   unionID,
+		"nonce":     nonce,
+		"timestamp": timestamp,
+		"signature": computeSignature(answerToken, nonce, timestamp, unionID),
+	}
+}
+
+func randomCredamoToken(length int) string {
+	const chars = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678"
+	if length <= 0 {
+		length = 1
+	}
+	var b strings.Builder
+	for i := 0; i < length; i++ {
+		b.WriteByte(chars[rand.Intn(len(chars))])
+	}
+	return b.String()
+}
+
+func responseCookieHeader(resp *httpclient.Response) string {
+	if resp == nil {
+		return ""
+	}
+	var cookies []string
+	for _, raw := range resp.Headers.Values("Set-Cookie") {
+		part := strings.TrimSpace(strings.Split(raw, ";")[0])
+		if part != "" {
+			cookies = append(cookies, part)
+		}
+	}
+	return strings.Join(cookies, "; ")
+}
+
+func mergeCookieHeaders(values ...string) string {
+	seen := make(map[string]string)
+	var order []string
+	for _, value := range values {
+		for _, part := range strings.Split(value, ";") {
+			cookie := strings.TrimSpace(part)
+			if cookie == "" {
+				continue
+			}
+			name := cookie
+			if idx := strings.Index(cookie, "="); idx >= 0 {
+				name = cookie[:idx]
+			}
+			if _, ok := seen[name]; !ok {
+				order = append(order, name)
+			}
+			seen[name] = cookie
+		}
+	}
+	var cookies []string
+	for _, name := range order {
+		cookies = append(cookies, seen[name])
+	}
+	return strings.Join(cookies, "; ")
+}
+
+func newTimeCode() string {
+	return fmt.Sprintf("%08x%04x%04x%04x%012x",
+		rand.Int31(), rand.Int31n(0xffff), rand.Int31n(0xffff),
+		rand.Int31n(0xffff), rand.Int63n(0xffffffffffff))
+}
+
+const (
+	SubmitSuccess = "success"
+	SubmitFailed  = "failed"
+)
+
+func classifyCredamoPayload(payload map[string]any) string {
+	if success, ok := payload["success"].(bool); ok && !success {
+		return SubmitFailed
+	}
+	return SubmitSuccess
 }
 
 // computeSignature implements Credamo's double SHA1 signature scheme.
@@ -834,7 +949,7 @@ func int64FromAny(value any, fallback int64) int64 {
 }
 
 func rawQuestionID(m map[string]any) string {
-	return firstString(m, "id", "questionId", "qstId")
+	return firstString(m, "qstId", "id", "questionId")
 }
 
 func rawQuestionNum(m map[string]any, fallback int) int {

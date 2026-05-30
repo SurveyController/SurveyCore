@@ -2,12 +2,8 @@ name: Go
 
 on:
   push:
-    branches:
-      - main
-      - rewrite
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,8 +13,12 @@ env:
 
 jobs:
   verify:
-    name: Verify
-    runs-on: ubuntu-latest
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - name: Checkout
@@ -43,6 +43,7 @@ jobs:
         run: go build ./...
 
       - name: Race test
+        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: go test -race ./...
 
       - name: Check module tidiness
@@ -50,3 +51,55 @@ jobs:
 
       - name: Check whitespace
         run: git diff --check
+
+  live-runtime-regression-matrix:
+    name: Live Runtime Checks
+    needs:
+      - verify
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config_name: wjx
+            survey_url: https://v.wjx.cn/vm/ei3sVrE.aspx
+          - config_name: credamo
+            survey_url: https://www.credamo.com/s/A73QR3ano
+          - config_name: tencent
+            survey_url: https://wj.qq.com/s2/26070328/fa89/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Run live runtime regression for ${{ matrix.config_name }}
+        env:
+          SURVEY_CONTROLLER_LIVE_TEST_URL: ${{ matrix.survey_url }}
+        run: go test ./CI/live_tests -run TestLiveRuntimeRegression -count=1 -timeout=5m -v
+
+  live-runtime-regression:
+    name: Live Parser Regression
+    if: ${{ always() && needs.verify.result == 'success' }}
+    needs:
+      - verify
+      - live-runtime-regression-matrix
+    runs-on: windows-latest
+
+    steps:
+      - name: Verify matrix result
+        shell: powershell
+        run: |
+          $result = "${{ needs.live-runtime-regression-matrix.result }}"
+          Write-Host "Live runtime regression matrix result: $result"
+          if ($result -ne "success") {
+            throw "Live runtime regression did not pass."
+          }

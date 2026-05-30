@@ -19,8 +19,11 @@ go.work.sum
 # IDE
 .idea/
 .vscode/
+.playwright-mcp/
 *.swp
 *.swo
+desktop.ini
+AGENTS.md
 
 # OS
 .DS_Store

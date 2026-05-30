@@ -19,6 +19,9 @@ const (
 	defaultUserAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.44"
 
 	submitVerificationText = "需要安全校验，请重新提交"
+
+	parseRetryAttempts = 3
+	parseRetryDelay    = 350 * time.Millisecond
 )
 
 // WjxSubmitResult classification constants
@@ -43,32 +46,51 @@ func (p *Provider) ProviderName() string { return ProviderName }
 // ParseSurvey fetches and parses a WJX survey page.
 func (p *Provider) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
 	surveyURL = normalizeSurveyURL(surveyURL)
-	resp, err := httpclient.Get(ctx, surveyURL, map[string]string{
+	headers := map[string]string{
 		"User-Agent": defaultUserAgent,
 		"Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-	}, nil, 15*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("无法获取问卷网页: %w", err)
 	}
 
-	html := string(resp.Body)
-	if err := checkPageStateErrors(html); err != nil {
-		return nil, err
+	var lastHTML string
+	var lastErr error
+	for attempt := 1; attempt <= parseRetryAttempts; attempt++ {
+		resp, err := httpclient.Get(ctx, surveyURL, headers, nil, 15*time.Second)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		html := string(resp.Body)
+		lastHTML = html
+		if err := checkPageStateErrors(html); err != nil {
+			return nil, err
+		}
+
+		questions, title, err := ParseHTML(html)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(questions) > 0 {
+			return &models.SurveyDefinition{
+				Provider:  ProviderName,
+				Title:     strings.TrimSpace(title),
+				Questions: questions,
+			}, nil
+		}
+		if attempt < parseRetryAttempts {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(parseRetryDelay):
+			}
+		}
 	}
 
-	questions, title, err := ParseHTML(html)
-	if err != nil {
-		return nil, err
+	if lastErr != nil {
+		return nil, fmt.Errorf("无法获取问卷网页: %w", lastErr)
 	}
-	if len(questions) == 0 {
-		return nil, fmt.Errorf("无法打开问卷链接，HTTP 页面未返回可解析题目")
-	}
-
-	return &models.SurveyDefinition{
-		Provider:  ProviderName,
-		Title:     strings.TrimSpace(title),
-		Questions: questions,
-	}, nil
+	return nil, fmt.Errorf("无法打开问卷链接，HTTP 页面未返回可解析题目: %s", unparseablePageSummary(lastHTML))
 }
 
 // FillSurveyHTTP submits a single WJX survey response via HTTP.
@@ -318,4 +340,12 @@ func parseProxyAddress(addr string) *string {
 	}
 	v := strings.TrimSpace(addr)
 	return &v
+}
+
+func unparseablePageSummary(html string) string {
+	text := normalizeHTMLText(html)
+	if text == "" {
+		return "空页面"
+	}
+	return truncate(text, 120)
 }

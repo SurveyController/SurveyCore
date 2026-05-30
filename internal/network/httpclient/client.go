@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -102,11 +103,7 @@ func doRequest(ctx context.Context, method, reqURL, body string, headers map[str
 
 	var bodyReader io.Reader
 	if body != "" {
-		bodyReader = io.NopCloser(
-			io.Reader(
-				&stringReader{s: body, i: 0},
-			),
-		)
+		bodyReader = strings.NewReader(body)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
@@ -149,19 +146,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
-}
-
-// stringReader is a simple io.Reader for strings.
-type stringReader struct {
-	s string
-	i int
-}
-
-func (r *stringReader) Read(p []byte) (n int, err error) {
-	if r.i >= len(r.s) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.s[r.i:])
-	r.i += n
-	return n, nil
 }

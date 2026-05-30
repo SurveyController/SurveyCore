@@ -16,6 +16,7 @@ var (
 	leadingTitleNumRe = regexp.MustCompile(`^\s*\*?\s*(\d+)\s*[.．、]\s*(.*)$`)
 	forcedLetterRe    = regexp.MustCompile(`(?i)(?:请|务必|直接)?(?:选择|选|勾选)\s*([A-Z])\s*(?:项|选项)?`)
 	forcedIndexRe     = regexp.MustCompile(`(?:请|务必|直接)?(?:选择|选|勾选)?\s*第\s*(\d+)\s*(?:项|个)?`)
+	digitRe           = regexp.MustCompile(`\d+`)
 )
 
 // Survey page state error types
@@ -179,7 +180,11 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 		q.IsTextLike = true
 	}
 	if q.IsTextLike {
-		q.TextInputCount = countTextInputs(s)
+		q.TextInputLabels = extractTextInputLabels(s, num)
+		q.TextInputCount = len(q.TextInputLabels)
+		if q.TextInputCount <= 0 {
+			q.TextInputCount = countTextInputs(s, num)
+		}
 		if q.TextInputCount > 1 {
 			q.IsMultiText = true
 		}
@@ -201,6 +206,12 @@ func extractQuestion(s *goquery.Selection, defaultNum int) *models.SurveyQuestio
 	if forcedIdx, forcedText := extractForcedOption(s, title, optionTexts); forcedIdx >= 0 {
 		q.ForcedOptionIndex = &forcedIdx
 		q.ForcedOptionText = forcedText
+	}
+
+	if hasJump, jumpRules := extractJumpRules(s, optionTexts); hasJump {
+		q.HasJump = true
+		q.JumpRules = jumpRules
+		q.LogicParseStatus = models.LogicParseStatusComplete
 	}
 
 	// Detect slider
@@ -404,12 +415,172 @@ func looksLikeTextQuestion(s *goquery.Selection) bool {
 	return s.Find("textarea, input[type='text'], .textEdit, [contenteditable='true']").Length() > 0
 }
 
-func countTextInputs(s *goquery.Selection) int {
-	count := s.Find("textarea, input[type='text'], .textEdit, [contenteditable='true']").Length()
+func countTextInputs(s *goquery.Selection, questionNum int) int {
+	if questionNum > 0 {
+		nameRe := regexp.MustCompile(fmt.Sprintf(`^q%d_\d+$`, questionNum))
+		seen := make(map[string]bool)
+		s.Find("input[name]").Each(func(i int, input *goquery.Selection) {
+			name, _ := input.Attr("name")
+			name = strings.TrimSpace(name)
+			if nameRe.MatchString(name) {
+				seen[name] = true
+			}
+		})
+		if len(seen) > 0 {
+			return len(seen)
+		}
+	}
+	count := s.Find("textarea, input[type='text']").Length()
 	if count <= 0 && looksLikeTextQuestion(s) {
 		return 1
 	}
 	return count
+}
+
+func extractTextInputLabels(s *goquery.Selection, questionNum int) []string {
+	if questionNum <= 0 {
+		return nil
+	}
+	html, err := s.Html()
+	if err != nil || strings.TrimSpace(html) == "" {
+		return nil
+	}
+	inputRe := regexp.MustCompile(fmt.Sprintf(`(?is)<input\b[^>]*\bname=['"]q%d_(\d+)['"][^>]*>`, questionNum))
+	matches := inputRe.FindAllStringSubmatchIndex(html, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	labels := make([]string, 0, len(matches))
+	prevEnd := 0
+	for _, match := range matches {
+		if len(match) < 4 {
+			continue
+		}
+		segment := html[prevEnd:match[0]]
+		label := cleanupTextInputLabel(segment)
+		labels = append(labels, label)
+		prevEnd = match[1]
+	}
+	for len(labels) > 0 && labels[0] == "" {
+		labels[0] = cleanupQuestionTitle(s.Find(".topichtml, .field-label").First().Text())
+		break
+	}
+	return labels
+}
+
+func cleanupTextInputLabel(html string) string {
+	text := normalizeHTMLText(html)
+	text = strings.ReplaceAll(text, "*", " ")
+	text = regexp.MustCompile(`^\s*\d+[.．、]\s*`).ReplaceAllString(text, "")
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+	return strings.TrimSpace(text)
+}
+
+func extractJumpRules(s *goquery.Selection, optionTexts []string) (bool, []map[string]any) {
+	hasJumpAttr := strings.TrimSpace(attrOrEmpty(s, "hasjump")) == "1"
+	var rules []map[string]any
+	optionIndex := 0
+
+	s.Find("input[type='radio'], input[type='checkbox']").Each(func(i int, input *goquery.Selection) {
+		jumptoRaw := firstAttr(input, "jumpto", "data-jumpto")
+		if jumptoRaw == "" {
+			optionIndex++
+			return
+		}
+		target := parseJumpTarget(jumptoRaw)
+		if target > 0 {
+			optionText := ""
+			if optionIndex >= 0 && optionIndex < len(optionTexts) {
+				optionText = optionTexts[optionIndex]
+			}
+			rules = append(rules, map[string]any{
+				"option_index":      optionIndex,
+				"jumpto":            target,
+				"option_text":       optionText,
+				"terminates_survey": jumpTargetTerminates(target, optionText),
+			})
+		}
+		optionIndex++
+	})
+
+	if hasJumpAttr {
+		if target := parseJumpTarget(firstAttr(s, "jumpto", "data-jumpto", "goto", "data-goto", "anyjump", "data-anyjump")); target > 0 {
+			duplicate := false
+			for _, rule := range rules {
+				if intFromRule(rule, "option_index") < 0 && intFromRule(rule, "jumpto") == target {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				rules = append(rules, map[string]any{
+					"option_index": -1,
+					"jumpto":       target,
+				})
+			}
+		}
+	}
+	return hasJumpAttr || len(rules) > 0, rules
+}
+
+func parseJumpTarget(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if parsed, err := strconv.Atoi(value); err == nil {
+		return parsed
+	}
+	match := digitRe.FindString(value)
+	if match == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(match)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func jumpTargetTerminates(target int, optionText string) bool {
+	if target == 1 || target == -1 {
+		return true
+	}
+	for _, keyword := range []string{"结束作答", "结束答题", "结束填写", "终止作答", "停止作答"} {
+		if strings.Contains(optionText, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstAttr(s *goquery.Selection, names ...string) string {
+	for _, name := range names {
+		if value, ok := s.Attr(name); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func attrOrEmpty(s *goquery.Selection, name string) string {
+	value, _ := s.Attr(name)
+	return value
+}
+
+func intFromRule(rule map[string]any, key string) int {
+	switch v := rule[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(v))
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func dedupeNonEmpty(values []string) []string {

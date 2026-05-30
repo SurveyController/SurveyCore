@@ -105,3 +105,59 @@ func TestParseHTMLExtractsMatrixHeaderAndRows(t *testing.T) {
 		t.Fatalf("option texts = %#v, want 差/好", got.OptionTexts)
 	}
 }
+
+func TestParseHTMLExtractsGapfillBlankLabels(t *testing.T) {
+	html := `
+<html><body>
+  <div topic="11" id="div11" req="1" gapfill="1" type="9">
+    <div class="field-label gapfilltitle">
+      <div class="topicnumber">11.</div>
+      <div class="topichtml">
+        第一个空<input type="text" id="q11_1" name="q11_1" />
+        <div>请输入手机号<input type="text" id="q11_2" name="q11_2" /></div>
+        <div>备注<input type="text" id="q11_3" name="q11_3" /></div>
+      </div>
+    </div>
+  </div>
+</body></html>`
+
+	questions, _, err := ParseHTML(html)
+	if err != nil {
+		t.Fatalf("ParseHTML returned error: %v", err)
+	}
+	if len(questions) != 1 {
+		t.Fatalf("questions length = %d, want 1", len(questions))
+	}
+	got := questions[0]
+	if !got.IsTextLike || !got.IsMultiText || got.TextInputCount != 3 {
+		t.Fatalf("gapfill metadata = %#v, want 3 text blanks", got)
+	}
+	if len(got.TextInputLabels) != 3 || got.TextInputLabels[1] != "请输入手机号" {
+		t.Fatalf("gapfill labels = %#v, want phone label at blank 2", got.TextInputLabels)
+	}
+}
+
+func TestParseHTMLExtractsJumpRules(t *testing.T) {
+	html := `
+<html><body>
+  <div topic="1" id="div1" type="3" hasjump="1" anyjump="0">
+    <div class="topichtml">1. 请选择</div>
+    <div class="ui-controlgroup">
+      <div><input type="radio" value="1" id="q1_1" name="q1" /><span class="label">A</span></div>
+      <div><input type="radio" value="2" id="q1_2" name="q1" jumpto="5" /><span class="label">B</span></div>
+    </div>
+  </div>
+</body></html>`
+
+	questions, _, err := ParseHTML(html)
+	if err != nil {
+		t.Fatalf("ParseHTML returned error: %v", err)
+	}
+	got := questions[0]
+	if !got.HasJump || got.LogicParseStatus != "complete" || len(got.JumpRules) != 1 {
+		t.Fatalf("jump metadata = %#v, want one complete jump rule", got)
+	}
+	if got.JumpRules[0]["option_index"] != 1 || got.JumpRules[0]["jumpto"] != 5 {
+		t.Fatalf("jump rule = %#v, want option 1 -> question 5", got.JumpRules[0])
+	}
+}
