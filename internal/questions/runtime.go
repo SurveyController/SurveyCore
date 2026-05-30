@@ -249,6 +249,13 @@ func (r *RunContext) GenerateText(meta models.SurveyQuestionMeta, configIdx int,
 	return strings.TrimSpace(answer)
 }
 
+func (r *RunContext) ConfiguredTextCandidate(configIdx int) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	return ChooseConfiguredTextCandidate(r.cfg, configIdx)
+}
+
 func (r *RunContext) configuredLocationAnswer(meta models.SurveyQuestionMeta, blankCount int) (string, bool) {
 	if r == nil || r.cfg == nil || len(r.cfg.LocationParts) == 0 {
 		return "", false

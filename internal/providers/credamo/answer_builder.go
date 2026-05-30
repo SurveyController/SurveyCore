@@ -230,7 +230,7 @@ func buildOrderAction(meta models.SurveyQuestionMeta, optionCount int) *CredamoA
 
 func buildTextAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) *CredamoAnswerAction {
 	text := "满意"
-	if candidate, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+	if candidate, ok := runtime.ConfiguredTextCandidate(configIdx); ok {
 		text = candidate
 	}
 	blankCount := meta.TextInputCount

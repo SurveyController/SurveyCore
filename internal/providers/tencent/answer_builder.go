@@ -424,7 +424,7 @@ func getMatrixRowRaw(rawQ map[string]any, rowIndex int) map[string]any {
 
 func buildTextAnswer(cfg *execution.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) *TencentAnswerAction {
 	text := "满意"
-	if candidate, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+	if candidate, ok := runtime.ConfiguredTextCandidate(configIdx); ok {
 		text = candidate
 	}
 	blankCount := meta.TextInputCount

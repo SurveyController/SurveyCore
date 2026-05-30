@@ -415,7 +415,7 @@ func buildScaleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestion
 
 func buildTextAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx int, runtime *questions.RunContext) (*AnswerAction, error) {
 	textValues := []string{""}
-	if text, ok := questions.ChooseConfiguredTextCandidate(cfg, configIdx); ok {
+	if text, ok := runtime.ConfiguredTextCandidate(configIdx); ok {
 		textValues = []string{text}
 	} else {
 		textValues = []string{generateDefaultText(meta)}
