@@ -3,12 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/SurveyController/SurveyConsole/internal/logging"
 	"github.com/SurveyController/SurveyConsole/internal/models"
 	"github.com/SurveyController/SurveyConsole/internal/network/proxy"
 )
@@ -133,7 +133,7 @@ func (e *Engine) prefetchProxyBatch(pool *proxy.Pool, count int) {
 	}
 	leases, err := pool.FetchBatch(count)
 	if err != nil {
-		log.Printf("[ProxyPrefetch] 获取代理失败: %v", err)
+		logging.WarnFields("获取代理失败", logging.F("component", "proxy_prefetch"), logging.F("error", err))
 		return
 	}
 	pool.AddLeases(leases)
@@ -267,7 +267,7 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 			lease = e.pool.Pop()
 		}
 		if lease == nil {
-			log.Printf("[Worker %s] 随机 IP 已启用但没有可用代理", threadName)
+			logging.WarnFields("随机 IP 已启用但没有可用代理", logging.F("worker", threadName))
 			return false
 		}
 		if lease != nil {
@@ -287,7 +287,7 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 
 	success, err := adapter.FillSurveyHTTP(ctx, cfg, state, opts)
 	if err != nil {
-		log.Printf("[Worker %s] 提交失败: %v", threadName, err)
+		logging.WarnFields("提交失败", logging.F("worker", threadName), logging.F("error", err))
 		if cfg.RandomProxyIPEnabled && e.pool != nil && rawProxyAddr != "" {
 			e.pool.MarkBad(rawProxyAddr)
 		}

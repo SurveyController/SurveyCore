@@ -2,8 +2,10 @@ package logging
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +27,29 @@ var levelNames = map[Level]string{
 	LevelError: "ERROR",
 }
 
+var levelColors = map[Level]string{
+	LevelDebug: "\033[90m",
+	LevelInfo:  "\033[32m",
+	LevelWarn:  "\033[33m",
+	LevelError: "\033[31m",
+}
+
+const (
+	colorCyan  = "\033[36m"
+	colorReset = "\033[0m"
+)
+
+// Field is one structured log parameter.
+type Field struct {
+	Key   string
+	Value any
+}
+
+// F creates one structured log field.
+func F(key string, value any) Field {
+	return Field{Key: key, Value: value}
+}
+
 // Logger is a simple structured logger.
 type Logger struct {
 	mu     sync.Mutex
@@ -43,6 +68,40 @@ func New(level Level, prefix string) *Logger {
 }
 
 func (l *Logger) log(level Level, format string, args ...any) {
+	l.logFields(level, fmt.Sprintf(format, args...))
+}
+
+func colorEnabled() bool {
+	return os.Getenv("NO_COLOR") == ""
+}
+
+func levelLabel(level Level) string {
+	label := fmt.Sprintf("[%s]", levelNames[level])
+	if !colorEnabled() {
+		return label
+	}
+	return levelColors[level] + label + colorReset
+}
+
+func formatFields(fields []Field) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.Key == "" {
+			continue
+		}
+		key := field.Key + "="
+		if colorEnabled() {
+			key = colorCyan + key + colorReset
+		}
+		parts = append(parts, fmt.Sprintf("%s%v", key, field.Value))
+	}
+	return strings.Join(parts, " ")
+}
+
+func (l *Logger) logFields(level Level, msg string, fields ...Field) {
 	if level < l.level {
 		return
 	}
@@ -50,12 +109,21 @@ func (l *Logger) log(level Level, format string, args ...any) {
 	defer l.mu.Unlock()
 
 	ts := time.Now().Format("2006-01-02 15:04:05")
-	msg := fmt.Sprintf(format, args...)
-	prefix := ""
+	parts := []string{ts, levelLabel(level)}
 	if l.prefix != "" {
-		prefix = fmt.Sprintf("[%s] ", l.prefix)
+		parts = append(parts, "component="+l.prefix)
 	}
-	l.logger.Printf("%s [%s] %s%s", ts, levelNames[level], prefix, msg)
+	if formatted := formatFields(fields); formatted != "" {
+		parts = append(parts, formatted)
+	}
+	if msg != "" {
+		key := "msg="
+		if colorEnabled() {
+			key = colorCyan + key + colorReset
+		}
+		parts = append(parts, key+msg)
+	}
+	l.logger.Print(strings.Join(parts, " "))
 }
 
 // Debug logs a debug message.
@@ -78,6 +146,11 @@ func (l *Logger) Error(format string, args ...any) {
 	l.log(LevelError, format, args...)
 }
 
+// Log logs a message with structured fields.
+func (l *Logger) Log(level Level, msg string, fields ...Field) {
+	l.logFields(level, msg, fields...)
+}
+
 // Default logger
 var defaultLogger = New(LevelInfo, "")
 
@@ -91,6 +164,11 @@ func SetPrefix(prefix string) {
 	defaultLogger.prefix = prefix
 }
 
+// SetOutput changes the default logger output, mostly for tests.
+func SetOutput(output io.Writer) {
+	defaultLogger.logger.SetOutput(output)
+}
+
 // Debug logs a debug message using the default logger.
 func Debug(format string, args ...any) { defaultLogger.Debug(format, args...) }
 
@@ -102,3 +180,18 @@ func Warn(format string, args ...any) { defaultLogger.Warn(format, args...) }
 
 // Error logs an error message using the default logger.
 func Error(format string, args ...any) { defaultLogger.Error(format, args...) }
+
+// Log logs a structured message using the default logger.
+func Log(level Level, msg string, fields ...Field) { defaultLogger.Log(level, msg, fields...) }
+
+// DebugFields logs a debug message with fields.
+func DebugFields(msg string, fields ...Field) { defaultLogger.Log(LevelDebug, msg, fields...) }
+
+// InfoFields logs an info message with fields.
+func InfoFields(msg string, fields ...Field) { defaultLogger.Log(LevelInfo, msg, fields...) }
+
+// WarnFields logs a warning message with fields.
+func WarnFields(msg string, fields ...Field) { defaultLogger.Log(LevelWarn, msg, fields...) }
+
+// ErrorFields logs an error message with fields.
+func ErrorFields(msg string, fields ...Field) { defaultLogger.Log(LevelError, msg, fields...) }

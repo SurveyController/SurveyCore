@@ -1,0 +1,208 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/SurveyController/SurveyConsole/internal/config"
+	"github.com/SurveyController/SurveyConsole/internal/engine"
+	surveyio "github.com/SurveyController/SurveyConsole/internal/io"
+	"github.com/SurveyController/SurveyConsole/internal/logging"
+	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/SurveyController/SurveyConsole/internal/providers"
+)
+
+type Server struct {
+	manager  *TaskManager
+	version  string
+	registry engine.ProviderRegistry
+}
+
+func NewServer(manager *TaskManager, version string) *Server {
+	return &Server{
+		manager:  manager,
+		version:  version,
+		registry: providers.Default(),
+	}
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/version", s.handleVersion)
+	mux.HandleFunc("POST /api/tasks", s.handleCreateTask)
+	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
+	mux.HandleFunc("GET /api/tasks/{id}", s.handleGetTask)
+	mux.HandleFunc("POST /api/tasks/{id}/stop", s.handleStopTask)
+	mux.HandleFunc("GET /api/tasks/{id}/logs", s.handleTaskLogs)
+	mux.HandleFunc("POST /api/surveys/parse", s.handleParseSurvey)
+	mux.HandleFunc("POST /api/configs", s.handleCreateConfig)
+	mux.HandleFunc("POST /api/qrcode/decode", s.handleDecodeQR)
+	return loggingMiddleware(mux)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"version": s.version})
+}
+
+func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
+	var cfg models.RuntimeConfig
+	if err := decodeJSON(r, &cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	task, err := s.manager.Create(context.Background(), &cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"task_id": task.ID, "status": task.Status})
+}
+
+func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": s.manager.List()})
+}
+
+func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	task, ok := s.manager.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("任务不存在"))
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) handleStopTask(w http.ResponseWriter, r *http.Request) {
+	task, err := s.manager.Stop(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+func (s *Server) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
+	logs, err := s.manager.Logs(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
+}
+
+func (s *Server) handleParseSurvey(w http.ResponseWriter, r *http.Request) {
+	var req parseSurveyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.URL = strings.TrimSpace(req.URL)
+	if req.URL == "" {
+		writeError(w, http.StatusBadRequest, errors.New("url 不能为空"))
+		return
+	}
+	def, err := engine.NewEngine(s.registry, nil, nil).ParseSurvey(r.Context(), req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, def)
+}
+
+func (s *Server) handleCreateConfig(w http.ResponseWriter, r *http.Request) {
+	var req createConfigRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	cfg := models.NewDefaultRuntimeConfig()
+	cfg.URL = strings.TrimSpace(req.URL)
+	if cfg.URL != "" {
+		def, err := engine.NewEngine(s.registry, nil, nil).ParseSurvey(r.Context(), cfg.URL)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err)
+			return
+		}
+		cfg.SurveyTitle = def.Title
+		cfg.SurveyProvider = def.Provider
+		cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
+		cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
+	}
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+func (s *Server) handleDecodeQR(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(16 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("缺少 image 文件"))
+		return
+	}
+	defer file.Close()
+
+	tmp, err := os.CreateTemp("", "surveyconsole-qr-*"+filepath.Ext(header.Filename))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.ReadFrom(file); err != nil {
+		tmp.Close()
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	url, err := surveyio.DecodeSurveyURLFromFile(tmpPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": url})
+}
+
+func decodeJSON(r *http.Request, dst any) error {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return fmt.Errorf("JSON 请求体无效: %w", err)
+	}
+	return nil
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, map[string]any{"error": err.Error()})
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		logging.InfoFields("HTTP 请求", logging.F("method", r.Method), logging.F("path", r.URL.Path), logging.F("duration_ms", time.Since(start).Milliseconds()))
+	})
+}

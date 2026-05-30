@@ -2,492 +2,65 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"flag"
-	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
+	"time"
 
-	"github.com/SurveyController/SurveyConsole/internal/config"
-	"github.com/SurveyController/SurveyConsole/internal/engine"
-	surveyio "github.com/SurveyController/SurveyConsole/internal/io"
+	"github.com/SurveyController/SurveyConsole/internal/api"
 	"github.com/SurveyController/SurveyConsole/internal/logging"
-	"github.com/SurveyController/SurveyConsole/internal/models"
-	"github.com/SurveyController/SurveyConsole/internal/network/proxy"
-	"github.com/SurveyController/SurveyConsole/internal/providers"
 )
-
-// Ensure providers.Registry satisfies engine.ProviderRegistry
-var _ engine.ProviderRegistry = (*providers.Registry)(nil)
 
 var version = "0.1.0"
 
 func main() {
-	// Subcommands
-	if len(os.Args) < 2 {
-		printUsage()
+	addr := os.Getenv("SURVEYCONSOLE_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:19178"
+	}
+
+	manager, err := api.DefaultTaskManager()
+	if err != nil {
+		logging.ErrorFields("初始化任务存储失败", logging.F("error", err))
 		os.Exit(1)
 	}
-
-	switch os.Args[1] {
-	case "run":
-		cmdRun(os.Args[2:])
-	case "parse":
-		cmdParse(os.Args[2:])
-	case "config":
-		cmdConfig(os.Args[2:])
-	case "qr":
-		cmdQR(os.Args[2:])
-	case "export":
-		cmdExport(os.Args[2:])
-	case "version":
-		fmt.Printf("SurveyController-Go v%s\n", version)
-	case "help", "--help", "-h":
-		printUsage()
-	default:
-		fmt.Fprintf(os.Stderr, "未知命令: %s\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
-}
-
-func printUsage() {
-	fmt.Println(`SurveyController-Go - 问卷自动化处理工具
-
-用法:
-  surveycontroller <命令> [选项]
-
-命令:
-  run      - 运行问卷提交任务
-  parse    - 解析问卷结构
-  config   - 配置管理
-  qr       - 解析二维码图片中的问卷链接
-  export   - 导出运行报告到 Excel
-  version  - 显示版本
-  help     - 显示帮助
-
-示例:
-  surveycontroller run -config config.json -target 10 -threads 3
-  surveycontroller run -config config.json -answer-duration-min 60 -answer-duration-max 120
-  surveycontroller run -config config.json -reverse-fill -reverse-fill-source samples.xlsx
-  surveycontroller parse -url "https://www.wjx.cn/vm/xxxxx.aspx"
-  surveycontroller config -create -url "https://www.wjx.cn/vm/xxxxx.aspx"
-  surveycontroller qr -image qrcode.png
-  surveycontroller export -config config.json -output report.xlsx`)
-}
-
-func cmdRun(args []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	configPath := fs.String("config", "", "配置文件路径 (JSON)")
-	urlFlag := fs.String("url", "", "问卷链接")
-	targetFlag := fs.Int("target", 0, "目标提交份数")
-	threadsFlag := fs.Int("threads", 0, "并发线程数")
-	submitIntervalMinFlag := fs.Int("submit-interval-min", -1, "提交间隔最小秒数")
-	submitIntervalMaxFlag := fs.Int("submit-interval-max", -1, "提交间隔最大秒数")
-	answerDurationMinFlag := fs.Int("answer-duration-min", -1, "作答时长最小秒数")
-	answerDurationMaxFlag := fs.Int("answer-duration-max", -1, "作答时长最大秒数")
-	answerWindowStartFlag := fs.String("answer-window-start", "", "见数作答时间窗开始 (YYYY-MM-DD HH:MM:SS)")
-	answerWindowEndFlag := fs.String("answer-window-end", "", "见数作答时间窗结束 (YYYY-MM-DD HH:MM:SS)")
-	randomIPFlag := fs.Bool("random-ip", false, "启用随机 IP")
-	proxySourceFlag := fs.String("proxy-source", "", "代理源 (default/benefit/custom)")
-	customProxyFlag := fs.String("custom-proxy", "", "自定义代理 API URL")
-	proxyAreaFlag := fs.String("proxy-area", "", "官方随机 IP 地区编码")
-	randomIPUserIDFlag := fs.Int("random-ip-user-id", 0, "官方随机 IP 用户 ID")
-	randomIPDeviceIDFlag := fs.String("random-ip-device-id", "", "官方随机 IP 设备 ID")
-	ipExtractEndpointFlag := fs.String("ip-extract-endpoint", "", "官方随机 IP 提取接口")
-	randomIPMinuteFlag := fs.Int("random-ip-minute", 0, "官方随机 IP 租期分钟 (1/3/5/10/15/30)")
-	reverseFillFlag := fs.Bool("reverse-fill", false, "启用反填样本")
-	reverseFillSourceFlag := fs.String("reverse-fill-source", "", "反填样本文件路径 (CSV/Excel)")
-	reverseFillFormatFlag := fs.String("reverse-fill-format", "", "反填样本格式 (auto/wjx_sequence/wjx_score/wjx_text)")
-	reverseFillStartRowFlag := fs.Int("reverse-fill-start-row", 0, "反填样本起始数据行")
-	reverseFillThreadsFlag := fs.Int("reverse-fill-threads", 0, "反填样本并发线程数")
-	verboseFlag := fs.Bool("verbose", false, "详细日志")
-	fs.Parse(args)
-
-	if *verboseFlag {
-		logging.SetLevel(logging.LevelDebug)
+	for _, loadErr := range manager.Load() {
+		logging.WarnFields("恢复任务时跳过坏记录", logging.F("error", loadErr))
 	}
 
-	// Load or create config
-	var cfg *models.RuntimeConfig
-	if *configPath != "" {
-		var err error
-		cfg, err = config.LoadFile(*configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		defaultCfg := models.NewDefaultRuntimeConfig()
-		cfg = &defaultCfg
-		if *urlFlag != "" {
-			cfg.URL = *urlFlag
-		}
+	server := api.NewServer(manager, version)
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           server.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	applyRunOverrides(cfg, runOverrides{
-		URL:                   *urlFlag,
-		Target:                *targetFlag,
-		Threads:               *threadsFlag,
-		SubmitIntervalMin:     *submitIntervalMinFlag,
-		SubmitIntervalMax:     *submitIntervalMaxFlag,
-		AnswerDurationMin:     *answerDurationMinFlag,
-		AnswerDurationMax:     *answerDurationMaxFlag,
-		AnswerWindowStart:     *answerWindowStartFlag,
-		AnswerWindowEnd:       *answerWindowEndFlag,
-		RandomIPEnabled:       *randomIPFlag,
-		ProxySource:           *proxySourceFlag,
-		CustomProxyAPI:        *customProxyFlag,
-		ProxyAreaCode:         *proxyAreaFlag,
-		RandomIPUserID:        *randomIPUserIDFlag,
-		RandomIPDeviceID:      *randomIPDeviceIDFlag,
-		IPExtractEndpoint:     *ipExtractEndpointFlag,
-		RandomIPLeaseMinute:   *randomIPMinuteFlag,
-		ReverseFillEnabled:    *reverseFillFlag,
-		ReverseFillSourcePath: *reverseFillSourceFlag,
-		ReverseFillFormat:     *reverseFillFormatFlag,
-		ReverseFillStartRow:   *reverseFillStartRowFlag,
-		ReverseFillThreads:    *reverseFillThreadsFlag,
-	})
-
-	config.MergeDefaults(cfg)
-
-	if cfg.URL == "" {
-		fmt.Fprintln(os.Stderr, "错误: 必须提供问卷链接 (-url)")
-		os.Exit(1)
-	}
-
-	// Parse survey first
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Handle Ctrl+C
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	errCh := make(chan error, 1)
 	go func() {
-		<-sigChan
-		fmt.Println("\n收到停止信号，正在停止...")
-		cancel()
+		logging.InfoFields("API 服务已启动", logging.F("addr", addr))
+		errCh <- httpServer.ListenAndServe()
 	}()
 
-	registry := providers.Default()
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Parse survey
-	fmt.Printf("正在解析问卷: %s\n", cfg.URL)
-	def, err := engine.NewEngine(registry, nil, nil).ParseSurvey(ctx, cfg.URL)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "解析问卷失败: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("解析成功: %s (%d 题)\n", def.Title, len(def.Questions))
-
-	cfg.SurveyTitle = def.Title
-	cfg.SurveyProvider = def.Provider
-
-	// Build execution config
-	execCfg, err := config.BuildExecutionConfigWithError(cfg, def.Questions)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "准备执行配置失败: %v\n", err)
-		os.Exit(1)
-	}
-	state := models.NewExecutionState()
-	state.Config = execCfg
-
-	// Create proxy pool if needed
-	var pool *proxy.Pool
-	if cfg.RandomIPEnabled {
-		pool = newProxyPoolFromRuntimeConfig(cfg)
-		fmt.Println("随机 IP 已启用")
-	}
-
-	// Status handler
-	handler := func(event engine.StatusEvent) {
-		if event.Success {
-			fmt.Printf("[✓] %s - %s\n", event.ThreadName, event.StatusText)
-		} else if event.Fail {
-			fmt.Printf("[✗] %s - %s\n", event.ThreadName, event.StatusText)
-		}
-	}
-
-	// Run
-	fmt.Printf("开始执行: 目标 %d 份, 并发 %d 线程\n", cfg.Target, cfg.Threads)
-	e := engine.NewEngine(registry, pool, handler)
-	if err := e.Run(ctx, execCfg, state); err != nil {
-		fmt.Fprintf(os.Stderr, "执行失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Report results
-	fmt.Printf("\n执行完成: 成功 %d, 失败 %d\n", state.GetCurNum(), state.GetCurFail())
-}
-
-type runOverrides struct {
-	URL                   string
-	Target                int
-	Threads               int
-	SubmitIntervalMin     int
-	SubmitIntervalMax     int
-	AnswerDurationMin     int
-	AnswerDurationMax     int
-	AnswerWindowStart     string
-	AnswerWindowEnd       string
-	RandomIPEnabled       bool
-	ProxySource           string
-	CustomProxyAPI        string
-	ProxyAreaCode         string
-	RandomIPUserID        int
-	RandomIPDeviceID      string
-	IPExtractEndpoint     string
-	RandomIPLeaseMinute   int
-	ReverseFillEnabled    bool
-	ReverseFillSourcePath string
-	ReverseFillFormat     string
-	ReverseFillStartRow   int
-	ReverseFillThreads    int
-}
-
-func applyRunOverrides(cfg *models.RuntimeConfig, opts runOverrides) {
-	if opts.URL != "" {
-		cfg.URL = opts.URL
-	}
-	if opts.Target > 0 {
-		cfg.Target = opts.Target
-	}
-	if opts.Threads > 0 {
-		cfg.Threads = opts.Threads
-	}
-	if opts.SubmitIntervalMin >= 0 || opts.SubmitIntervalMax >= 0 {
-		cfg.SubmitInterval = applyRangeOverride(cfg.SubmitInterval, opts.SubmitIntervalMin, opts.SubmitIntervalMax)
-	}
-	if opts.AnswerDurationMin >= 0 || opts.AnswerDurationMax >= 0 {
-		cfg.AnswerDuration = applyRangeOverride(cfg.AnswerDuration, opts.AnswerDurationMin, opts.AnswerDurationMax)
-	}
-	if opts.AnswerWindowStart != "" {
-		cfg.AnswerDatetimeWindow[0] = opts.AnswerWindowStart
-	}
-	if opts.AnswerWindowEnd != "" {
-		cfg.AnswerDatetimeWindow[1] = opts.AnswerWindowEnd
-	}
-	if opts.RandomIPEnabled {
-		cfg.RandomIPEnabled = true
-	}
-	if opts.ProxySource != "" {
-		cfg.ProxySource = opts.ProxySource
-	}
-	if opts.CustomProxyAPI != "" {
-		cfg.CustomProxyAPI = opts.CustomProxyAPI
-		cfg.ProxySource = "custom"
-	}
-	if opts.ProxyAreaCode != "" {
-		area := opts.ProxyAreaCode
-		cfg.ProxyAreaCode = &area
-	}
-	if opts.RandomIPUserID > 0 {
-		cfg.RandomIPUserID = opts.RandomIPUserID
-	}
-	if opts.RandomIPDeviceID != "" {
-		cfg.RandomIPDeviceID = opts.RandomIPDeviceID
-	}
-	if opts.IPExtractEndpoint != "" {
-		cfg.IPExtractEndpoint = opts.IPExtractEndpoint
-	}
-	if opts.RandomIPLeaseMinute > 0 {
-		cfg.RandomIPLeaseMinute = opts.RandomIPLeaseMinute
-	}
-	if opts.ReverseFillEnabled {
-		cfg.ReverseFillEnabled = true
-	}
-	if opts.ReverseFillSourcePath != "" {
-		cfg.ReverseFillEnabled = true
-		cfg.ReverseFillSourcePath = opts.ReverseFillSourcePath
-	}
-	if opts.ReverseFillFormat != "" {
-		cfg.ReverseFillFormat = opts.ReverseFillFormat
-	}
-	if opts.ReverseFillStartRow > 0 {
-		cfg.ReverseFillStartRow = opts.ReverseFillStartRow
-	}
-	if opts.ReverseFillThreads > 0 {
-		cfg.ReverseFillThreads = opts.ReverseFillThreads
-	}
-}
-
-func applyRangeOverride(current [2]int, minValue, maxValue int) [2]int {
-	if minValue >= 0 {
-		current[0] = minValue
-	}
-	if maxValue >= 0 {
-		current[1] = maxValue
-	}
-	if current[0] < 0 {
-		current[0] = 0
-	}
-	if current[1] < current[0] {
-		current[1] = current[0]
-	}
-	return current
-}
-
-func newProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
-	areaCode := ""
-	if cfg.ProxyAreaCode != nil {
-		areaCode = *cfg.ProxyAreaCode
-	}
-	return proxy.NewPool(
-		cfg.ProxySource,
-		cfg.CustomProxyAPI,
-		proxy.WithOfficialAreaCode(areaCode),
-		proxy.WithOfficialCredentials(cfg.RandomIPUserID, cfg.RandomIPDeviceID),
-		proxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
-		proxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
-	)
-}
-
-func cmdParse(args []string) {
-	fs := flag.NewFlagSet("parse", flag.ExitOnError)
-	urlFlag := fs.String("url", "", "问卷链接")
-	outputFlag := fs.String("output", "", "输出文件路径 (JSON)")
-	fs.Parse(args)
-
-	if *urlFlag == "" {
-		fmt.Fprintln(os.Stderr, "错误: 必须提供问卷链接 (-url)")
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-	registry := providers.Default()
-	e := engine.NewEngine(registry, nil, nil)
-
-	fmt.Printf("正在解析: %s\n", *urlFlag)
-	def, err := e.ParseSurvey(ctx, *urlFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "解析失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Provider: %s\n", def.Provider)
-	fmt.Printf("标题: %s\n", def.Title)
-	fmt.Printf("题目数: %d\n\n", len(def.Questions))
-
-	for _, q := range def.Questions {
-		fmt.Printf("  第 %d 题 [%s]: %s\n", q.Num, q.TypeCode, q.Title)
-		if len(q.OptionTexts) > 0 {
-			for i, opt := range q.OptionTexts {
-				fmt.Printf("    %d. %s\n", i+1, opt)
-			}
-		}
-	}
-
-	if *outputFlag != "" {
-		data, err := json.MarshalIndent(def, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "序列化结果失败: %v\n", err)
+	select {
+	case sig := <-signalCh:
+		logging.WarnFields("收到停止信号", logging.F("signal", sig.String()))
+	case err := <-errCh:
+		if err != nil && err != http.ErrServerClosed {
+			logging.ErrorFields("API 服务启动失败", logging.F("error", err))
 			os.Exit(1)
 		}
-		if err := os.MkdirAll(filepath.Dir(*outputFlag), 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "创建输出目录失败: %v\n", err)
-			os.Exit(1)
-		}
-		if err := os.WriteFile(*outputFlag, data, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "保存结果失败: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("\n结果已保存到: %s\n", *outputFlag)
 	}
-}
 
-func cmdConfig(args []string) {
-	fs := flag.NewFlagSet("config", flag.ExitOnError)
-	createFlag := fs.Bool("create", false, "创建新配置")
-	urlFlag := fs.String("url", "", "问卷链接")
-	outputFlag := fs.String("output", "config.json", "输出路径")
-	fs.Parse(args)
-
-	if *createFlag {
-		cfg := models.NewDefaultRuntimeConfig()
-		if *urlFlag != "" {
-			cfg.URL = *urlFlag
-			ctx := context.Background()
-			registry := providers.Default()
-			e := engine.NewEngine(registry, nil, nil)
-			fmt.Printf("正在解析问卷: %s\n", cfg.URL)
-			def, err := e.ParseSurvey(ctx, cfg.URL)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "解析问卷失败: %v\n", err)
-				os.Exit(1)
-			}
-			cfg.SurveyTitle = def.Title
-			cfg.SurveyProvider = def.Provider
-			cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
-			cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
-			fmt.Printf("解析成功: %s (%d 题)，已生成 %d 条默认题目配置\n", def.Title, len(def.Questions), len(cfg.QuestionEntries))
-		}
-		if err := config.SaveFile(&cfg, *outputFlag); err != nil {
-			fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("配置已保存到: %s\n", *outputFlag)
-	} else {
-		fmt.Println("用法: surveycontroller config -create [-url URL] [-output path]")
-	}
-}
-
-func cmdQR(args []string) {
-	fs := flag.NewFlagSet("qr", flag.ExitOnError)
-	imageFlag := fs.String("image", "", "二维码图片路径")
-	outputFlag := fs.String("output", "", "输出文件路径 (可选)")
-	fs.Parse(args)
-
-	if *imageFlag == "" {
-		fmt.Fprintln(os.Stderr, "错误: 必须提供二维码图片路径 (-image)")
+	manager.StopAll()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logging.ErrorFields("API 服务关闭失败", logging.F("error", err))
 		os.Exit(1)
 	}
-
-	fmt.Printf("正在解析二维码: %s\n", *imageFlag)
-	url, err := surveyio.DecodeSurveyURLFromFile(*imageFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "解析失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("解析成功!\n")
-	fmt.Printf("问卷链接: %s\n", url)
-
-	if *outputFlag != "" {
-		if err := os.WriteFile(*outputFlag, []byte(url), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "保存失败: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("链接已保存到: %s\n", *outputFlag)
-	}
-}
-
-func cmdExport(args []string) {
-	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	configFlag := fs.String("config", "", "配置文件路径")
-	outputFlag := fs.String("output", "report.xlsx", "输出 Excel 路径")
-	fs.Parse(args)
-
-	if *configFlag == "" {
-		fmt.Fprintln(os.Stderr, "错误: 必须提供配置文件路径 (-config)")
-		os.Exit(1)
-	}
-
-	cfg, err := config.LoadFile(*configFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	state := models.NewExecutionState()
-	state.Config = config.BuildExecutionConfig(cfg, cfg.QuestionsInfo)
-
-	fmt.Printf("正在导出报告: %s\n", *outputFlag)
-	if err := surveyio.ExportRunReport(*outputFlag, cfg, state, cfg.QuestionsInfo); err != nil {
-		fmt.Fprintf(os.Stderr, "导出失败: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("报告已导出: %s\n", *outputFlag)
+	logging.Info("API 服务已关闭")
 }
