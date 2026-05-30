@@ -31,18 +31,6 @@ type answerPlan struct {
 	TerminatedEarly bool
 }
 
-// buildAnswerActions generates answer actions for all questions in the config.
-func buildAnswerActions(cfg *execution.ExecutionConfig, state *runstate.ExecutionState, threadName string) ([]AnswerAction, error) {
-	plan, err := buildAnswerPlan(cfg, state, threadName)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateAnswerActions(plan.Actions, cfg); err != nil {
-		return nil, err
-	}
-	return plan.Actions, nil
-}
-
 func buildAnswerPlan(cfg *execution.ExecutionConfig, state *runstate.ExecutionState, threadName string) (*answerPlan, error) {
 	runtime := questions.NewRunContextForThread(cfg, state, threadName)
 	ordered := sortedQuestions(cfg)
@@ -763,61 +751,6 @@ func formatAnswer(action AnswerAction) string {
 	return ""
 }
 
-func validateAnswerActions(actions []AnswerAction, cfg *execution.ExecutionConfig) error {
-	for _, action := range actions {
-		meta, ok := cfg.QuestionsMetadata[action.QuestionNum]
-		if !ok {
-			continue
-		}
-		optionCount := meta.Options
-		if optionCount <= 0 {
-			optionCount = len(meta.OptionTexts)
-		}
-		switch action.Kind {
-		case "choice", "select":
-			if len(action.SelectedIndices) == 0 {
-				return fmt.Errorf("问卷星第%d题答案为空", action.QuestionNum)
-			}
-			for _, idx := range action.SelectedIndices {
-				if idx < 0 || (optionCount > 0 && idx >= optionCount) {
-					return fmt.Errorf("问卷星第%d题选项越界: %d", action.QuestionNum, idx)
-				}
-			}
-		case "text":
-			if len(action.TextValues) == 0 {
-				return fmt.Errorf("问卷星第%d题填空为空", action.QuestionNum)
-			}
-			for _, text := range action.TextValues {
-				if strings.TrimSpace(text) == "" {
-					return fmt.Errorf("问卷星第%d题填空包含空值", action.QuestionNum)
-				}
-			}
-		case "matrix":
-			rows := meta.Rows
-			if rows <= 0 {
-				rows = 1
-			}
-			if len(action.MatrixIndices) != rows {
-				return fmt.Errorf("问卷星第%d题矩阵行数不完整: got=%d want=%d", action.QuestionNum, len(action.MatrixIndices), rows)
-			}
-			for row, idx := range action.MatrixIndices {
-				if idx < 0 || (optionCount > 0 && idx >= optionCount) {
-					return fmt.Errorf("问卷星第%d题第%d行选项越界: %d", action.QuestionNum, row+1, idx)
-				}
-			}
-		case "slider":
-			if action.SliderValue == nil {
-				return fmt.Errorf("问卷星第%d题滑块答案为空", action.QuestionNum)
-			}
-		case "order":
-			if optionCount > 0 && len(action.SelectedIndices) != optionCount {
-				return fmt.Errorf("问卷星第%d题排序答案不完整", action.QuestionNum)
-			}
-		}
-	}
-	return nil
-}
-
 // formatSelectedIndicesWithFill formats indices with optional fill text (e.g., "1!custom text|2").
 func formatSelectedIndicesWithFill(indices []int, fillTexts map[int]string) string {
 	var parts []string
@@ -831,8 +764,4 @@ func formatSelectedIndicesWithFill(indices []int, fillTexts map[int]string) stri
 		parts = append(parts, val)
 	}
 	return strings.Join(parts, "|")
-}
-
-func formatSelectedIndices(indices []int) string {
-	return formatSelectedIndicesWithFill(indices, nil)
 }

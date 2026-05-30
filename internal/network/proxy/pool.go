@@ -114,13 +114,6 @@ func (p *Pool) Pop() *models.ProxyLease {
 	return nil
 }
 
-// Push adds a proxy lease back to the pool.
-func (p *Pool) Push(lease models.ProxyLease) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.leases = append(p.leases, lease)
-}
-
 // MarkBad puts a proxy address into cooldown for 180 seconds.
 func (p *Pool) MarkBad(address string) {
 	p.mu.Lock()

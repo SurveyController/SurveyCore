@@ -205,21 +205,6 @@ func extractRowTexts(q map[string]any) []string {
 	return rows
 }
 
-func extractJumpRules(q map[string]any) []map[string]any {
-	var rules []map[string]any
-	if gotoRaw, ok := q["goto"].([]any); ok {
-		for _, g := range gotoRaw {
-			if gMap, ok := g.(map[string]any); ok {
-				rules = append(rules, map[string]any{
-					"source_option": gMap["option_id"],
-					"target_page":   gMap["page_id"],
-				})
-			}
-		}
-	}
-	return rules
-}
-
 type tencentLogicState struct {
 	JumpRules             []map[string]any
 	HasJump               bool

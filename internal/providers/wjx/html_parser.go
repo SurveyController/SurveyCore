@@ -300,22 +300,6 @@ func extractTypeCode(s *goquery.Selection) string {
 	return "1"
 }
 
-func extractOptions(s *goquery.Selection) int {
-	radioCount := s.Find("input[type='radio']").Length()
-	checkboxCount := s.Find("input[type='checkbox']").Length()
-	selectCount := s.Find("select option").Length()
-	if radioCount > 0 {
-		return radioCount
-	}
-	if checkboxCount > 0 {
-		return checkboxCount
-	}
-	if selectCount > 0 {
-		return selectCount
-	}
-	return 0
-}
-
 func extractOptionTexts(s *goquery.Selection) []string {
 	var texts []string
 	s.Find(".label, label, option").Each(func(i int, opt *goquery.Selection) {

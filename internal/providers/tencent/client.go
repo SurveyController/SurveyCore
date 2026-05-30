@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SurveyController/SurveyCore/internal/models"
 	"github.com/SurveyController/SurveyCore/internal/network/httpclient"
 )
 
@@ -142,76 +141,4 @@ func ensureQQAPIOK(payload map[string]any, endpoint string) error {
 		return nil
 	}
 	return fmt.Errorf("%s 接口返回异常: %s", endpoint, code)
-}
-
-func fetchQuestions(ctx context.Context, surveyID, hashValue string) ([]models.SurveyQuestionMeta, string, error) {
-	rawQuestions, title, err := fetchRawQuestions(ctx, surveyID, hashValue)
-	if err != nil {
-		return nil, "", err
-	}
-	normalized := standardizeQuestions(rawQuestions)
-	return normalized, title, nil
-}
-
-func fetchRawQuestions(ctx context.Context, surveyID, hashValue string) ([]map[string]any, string, error) {
-	return fetchRawQuestionsWithSession(ctx, surveyID, hashValue, "", "")
-}
-
-func fetchRawQuestionsLegacy(ctx context.Context, surveyID, hashValue string) ([]map[string]any, string, error) {
-	// Try different locales
-	for _, locale := range strings.Split(localeOrder, ",") {
-		questionsURL := fmt.Sprintf("%s/%s/questions?hash=%s&locale=%s&_=%d",
-			apiBase, surveyID, hashValue, locale, time.Now().UnixMilli())
-
-		resp, err := httpclient.Get(ctx, questionsURL, map[string]string{
-			"User-Agent": defaultUA,
-			"Referer":    fmt.Sprintf("https://wj.qq.com/s2/%s/%s/", surveyID, hashValue),
-		}, nil, 10*time.Second)
-		if err != nil {
-			continue
-		}
-
-		var result map[string]any
-		if err := json.Unmarshal(resp.Body, &result); err != nil {
-			continue
-		}
-
-		data, ok := result["data"].(map[string]any)
-		if !ok {
-			continue
-		}
-
-		// Get title
-		title := ""
-		if metaURL := fmt.Sprintf("%s/%s/meta?hash=%s&locale=%s&_=%d",
-			apiBase, surveyID, hashValue, locale, time.Now().UnixMilli()); true {
-			metaResp, err := httpclient.Get(ctx, metaURL, map[string]string{
-				"User-Agent": defaultUA,
-				"Referer":    fmt.Sprintf("https://wj.qq.com/s2/%s/%s/", surveyID, hashValue),
-			}, nil, 10*time.Second)
-			if err == nil {
-				var metaResult map[string]any
-				if json.Unmarshal(metaResp.Body, &metaResult) == nil {
-					if metaData, ok := metaResult["data"].(map[string]any); ok {
-						if t, ok := metaData["title"].(string); ok {
-							title = t
-						}
-					}
-				}
-			}
-		}
-
-		// Extract questions array
-		if questionsRaw, ok := data["questions"].([]any); ok {
-			questions := make([]map[string]any, 0, len(questionsRaw))
-			for _, q := range questionsRaw {
-				if qm, ok := q.(map[string]any); ok {
-					questions = append(questions, qm)
-				}
-			}
-			return questions, title, nil
-		}
-	}
-
-	return nil, "", fmt.Errorf("无法获取腾讯问卷题目")
 }

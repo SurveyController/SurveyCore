@@ -192,17 +192,3 @@ func TestDimensionPlan(t *testing.T) {
 		t.Error("Should have choices for all dimensions")
 	}
 }
-
-func TestNormalizeDroplistProbs(t *testing.T) {
-	probs := []float64{0.5, 0.5}
-	result := questions.NormalizeDroplistProbs(probs, 4)
-	if len(result) != 4 {
-		t.Errorf("Length = %d, want 4", len(result))
-	}
-	if result[0] != 0.5 || result[1] != 0.5 {
-		t.Error("First two should be preserved")
-	}
-	if result[2] != 1.0 || result[3] != 1.0 {
-		t.Error("Remaining should be 1.0")
-	}
-}

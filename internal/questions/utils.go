@@ -108,36 +108,3 @@ func allNonPositive(values []float64) bool {
 	}
 	return true
 }
-
-// NormalizeDroplistProbs normalizes droplist probabilities.
-func NormalizeDroplistProbs(probs []float64, optionCount int) []float64 {
-	if len(probs) >= optionCount {
-		return probs[:optionCount]
-	}
-	result := make([]float64, optionCount)
-	copy(result, probs)
-	for i := len(probs); i < optionCount; i++ {
-		result[i] = 1.0
-	}
-	return result
-}
-
-// ToFloat64Slice converts various types to []float64.
-func ToFloat64Slice(v any) ([]float64, bool) {
-	if v == nil {
-		return nil, false
-	}
-	switch sl := v.(type) {
-	case []float64:
-		return sl, true
-	case []any:
-		result := make([]float64, 0, len(sl))
-		for _, item := range sl {
-			if f, ok := item.(float64); ok {
-				result = append(result, f)
-			}
-		}
-		return result, true
-	}
-	return nil, false
-}

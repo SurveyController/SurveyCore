@@ -73,24 +73,6 @@ func Post(ctx context.Context, reqURL, body string, headers map[string]string, p
 	return doRequest(ctx, http.MethodPost, reqURL, body, headers, proxyAddr, timeout)
 }
 
-// PostForm performs an HTTP POST with form-encoded data.
-func PostForm(ctx context.Context, reqURL string, formData map[string]string, headers map[string]string, proxyAddr *string, timeout time.Duration) (*Response, error) {
-	values := url.Values{}
-	for k, v := range formData {
-		values.Set(k, v)
-	}
-	body := values.Encode()
-
-	if headers == nil {
-		headers = make(map[string]string)
-	}
-	if _, ok := headers["Content-Type"]; !ok {
-		headers["Content-Type"] = "application/x-www-form-urlencoded"
-	}
-
-	return doRequest(ctx, http.MethodPost, reqURL, body, headers, proxyAddr, timeout)
-}
-
 func doRequest(ctx context.Context, method, reqURL, body string, headers map[string]string, proxyAddr *string, timeout time.Duration) (*Response, error) {
 	client := getClient(proxyAddr)
 

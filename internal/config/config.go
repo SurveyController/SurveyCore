@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -43,35 +41,6 @@ var ordinalTextGroups = [][]string{
 	{"非常差", "差", "一般", "好", "非常好"},
 	{"从不", "偶尔", "有时", "经常", "总是"},
 	{"完全没有", "较少", "一般", "较多", "非常多"},
-}
-
-// LoadFile loads a RuntimeConfig from a JSON file.
-func LoadFile(path string) (*models.RuntimeConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
-	}
-	cfg, err := models.DeserializeRuntimeConfig(data)
-	if err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-	return cfg, nil
-}
-
-// SaveFile saves a RuntimeConfig to a JSON file.
-func SaveFile(cfg *models.RuntimeConfig, path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("创建目录失败: %w", err)
-	}
-	data, err := models.SerializeRuntimeConfig(cfg)
-	if err != nil {
-		return fmt.Errorf("序列化配置失败: %w", err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("写入配置文件失败: %w", err)
-	}
-	return nil
 }
 
 // MergeDefaults fills in missing fields with sensible defaults.
@@ -654,10 +623,4 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// PrettyPrint prints a config as formatted JSON.
-func PrettyPrint(cfg *models.RuntimeConfig) string {
-	data, _ := json.MarshalIndent(cfg, "", "  ")
-	return string(data)
 }

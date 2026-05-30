@@ -33,10 +33,11 @@ func TestBuildSingleActionUsesWjxTypeCodeMapping(t *testing.T) {
 	}
 	state := runstate.NewExecutionState()
 
-	actions, err := buildAnswerActions(cfg, state, "")
+	plan, err := buildAnswerPlan(cfg, state, "")
 	if err != nil {
-		t.Fatalf("buildAnswerActions returned error: %v", err)
+		t.Fatalf("buildAnswerPlan returned error: %v", err)
 	}
+	actions := plan.Actions
 	if len(actions) != 4 {
 		t.Fatalf("actions length = %d, want 4: %#v", len(actions), actions)
 	}
