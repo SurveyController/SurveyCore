@@ -363,6 +363,7 @@ func cloneTask(task *TaskRecord) *TaskRecord {
 	}
 	copy := *task
 	copy.Config = cloneRuntimeConfig(task.Config)
+	copy.State = task.State.Snapshot()
 	return &copy
 }
 

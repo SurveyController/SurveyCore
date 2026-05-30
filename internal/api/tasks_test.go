@@ -97,3 +97,31 @@ func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadJSON(t *testing.T) {
 		t.Fatalf("status = %q, want interrupted", task.Status)
 	}
 }
+
+func TestCloneTaskSnapshotsExecutionState(t *testing.T) {
+	running := true
+	state := models.NewExecutionState()
+	state.UpdateThreadStatus("Worker-1", "运行中", &running)
+	state.IncrementSuccess()
+
+	task := &TaskRecord{
+		ID:     "task-1",
+		Status: TaskRunning,
+		State:  state,
+	}
+	cloned := cloneTask(task)
+
+	state.UpdateThreadStatus("Worker-1", "已变化", &running)
+	state.IncrementSuccess()
+
+	if cloned.State == state {
+		t.Fatal("cloned task keeps the original execution state pointer")
+	}
+	if cloned.State.GetCurNum() != 1 {
+		t.Fatalf("cloned cur num = %d, want snapshot value 1", cloned.State.GetCurNum())
+	}
+	got := cloned.State.ThreadProgress["Worker-1"].StatusText
+	if got != "运行中" {
+		t.Fatalf("cloned status = %q, want snapshot value", got)
+	}
+}

@@ -139,6 +139,48 @@ func NewExecutionState() *ExecutionState {
 	}
 }
 
+// Snapshot returns a JSON-safe copy of the mutable runtime state.
+func (s *ExecutionState) Snapshot() *ExecutionState {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	copy := &ExecutionState{
+		CurNum:                    s.CurNum,
+		CurFail:                   s.CurFail,
+		ProxyUnavailableFailCount: s.ProxyUnavailableFailCount,
+		DeviceQuotaFailCount:      s.DeviceQuotaFailCount,
+		TerminalStopCategory:      s.TerminalStopCategory,
+		TerminalFailureReason:     s.TerminalFailureReason,
+		TerminalStopMessage:       s.TerminalStopMessage,
+		ThreadProgress:            make(map[string]*ThreadProgressState, len(s.ThreadProgress)),
+		ProxyInUseByThread:        make(map[string]ProxyLease, len(s.ProxyInUseByThread)),
+		SuccessfulProxyAddresses:  make(map[string]bool, len(s.SuccessfulProxyAddresses)),
+		ProxyCooldownUntil:        make(map[string]float64, len(s.ProxyCooldownUntil)),
+		ProxyWaitingThreads:       s.ProxyWaitingThreads,
+	}
+	for key, value := range s.ThreadProgress {
+		if value == nil {
+			copy.ThreadProgress[key] = nil
+			continue
+		}
+		threadCopy := *value
+		copy.ThreadProgress[key] = &threadCopy
+	}
+	for key, value := range s.ProxyInUseByThread {
+		copy.ProxyInUseByThread[key] = value
+	}
+	for key, value := range s.SuccessfulProxyAddresses {
+		copy.SuccessfulProxyAddresses[key] = value
+	}
+	for key, value := range s.ProxyCooldownUntil {
+		copy.ProxyCooldownUntil[key] = value
+	}
+	return copy
+}
+
 // MarkTerminalStop records a terminal stop condition (first-write-wins).
 func (s *ExecutionState) MarkTerminalStop(category, failureReason, message string) {
 	s.terminalStopOnce.Do(func() {
