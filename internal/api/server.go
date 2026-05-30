@@ -11,25 +11,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SurveyController/SurveyConsole/internal/config"
-	"github.com/SurveyController/SurveyConsole/internal/engine"
 	surveyio "github.com/SurveyController/SurveyConsole/internal/io"
 	"github.com/SurveyController/SurveyConsole/internal/logging"
 	"github.com/SurveyController/SurveyConsole/internal/models"
-	"github.com/SurveyController/SurveyConsole/internal/providers"
+	"github.com/SurveyController/SurveyConsole/internal/tasks"
 )
 
-type Server struct {
-	manager  *TaskManager
-	version  string
-	registry engine.ProviderRegistry
+type TaskService interface {
+	Create(ctx context.Context, cfg *models.RuntimeConfig) (*tasks.TaskRecord, error)
+	List() []*tasks.TaskRecord
+	Get(id string) (*tasks.TaskRecord, bool)
+	Stop(id string) (*tasks.TaskRecord, error)
+	Logs(id string) ([]tasks.TaskLog, error)
+	ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error)
+	BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error)
 }
 
-func NewServer(manager *TaskManager, version string) *Server {
+type Server struct {
+	manager TaskService
+	version string
+}
+
+func NewServer(manager TaskService, version string) *Server {
 	return &Server{
-		manager:  manager,
-		version:  version,
-		registry: providers.Default(),
+		manager: manager,
+		version: version,
 	}
 }
 
@@ -112,7 +118,7 @@ func (s *Server) handleParseSurvey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("url 不能为空"))
 		return
 	}
-	def, err := engine.NewEngine(s.registry, nil, nil).ParseSurvey(r.Context(), req.URL)
+	def, err := s.manager.ParseSurvey(r.Context(), req.URL)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -126,18 +132,10 @@ func (s *Server) handleCreateConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	cfg := models.NewDefaultRuntimeConfig()
-	cfg.URL = strings.TrimSpace(req.URL)
-	if cfg.URL != "" {
-		def, err := engine.NewEngine(s.registry, nil, nil).ParseSurvey(r.Context(), cfg.URL)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, err)
-			return
-		}
-		cfg.SurveyTitle = def.Title
-		cfg.SurveyProvider = def.Provider
-		cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
-		cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
+	cfg, err := s.manager.BuildDefaultConfig(r.Context(), strings.TrimSpace(req.URL))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, cfg)
 }

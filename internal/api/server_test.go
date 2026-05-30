@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/SurveyController/SurveyConsole/internal/models"
+	"github.com/SurveyController/SurveyConsole/internal/tasks"
 )
 
 func TestHealth(t *testing.T) {
@@ -88,11 +89,11 @@ func TestDecodeQRMissingImageReturns400(t *testing.T) {
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	store := NewStore(t.TempDir())
+	store := tasks.NewStore(t.TempDir())
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
-	manager := NewTaskManager(store, nilRegistry{})
+	manager := tasks.NewTaskManager(store, nilRegistry{})
 	t.Cleanup(manager.StopAll)
 	return NewServer(manager, "test")
 }

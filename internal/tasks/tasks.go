@@ -1,4 +1,4 @@
-package api
+package tasks
 
 import (
 	"context"
@@ -161,6 +161,27 @@ func (m *TaskManager) Logs(id string) ([]TaskLog, error) {
 		return nil, errors.New("任务不存在")
 	}
 	return m.store.LoadLogs(id)
+}
+
+func (m *TaskManager) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
+	return engine.NewEngine(m.registry, nil, nil).ParseSurvey(ctx, surveyURL)
+}
+
+func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error) {
+	cfg := models.NewDefaultRuntimeConfig()
+	cfg.URL = surveyURL
+	if cfg.URL == "" {
+		return &cfg, nil
+	}
+	def, err := m.ParseSurvey(ctx, cfg.URL)
+	if err != nil {
+		return nil, err
+	}
+	cfg.SurveyTitle = def.Title
+	cfg.SurveyProvider = def.Provider
+	cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
+	cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
+	return &cfg, nil
 }
 
 func (m *TaskManager) run(ctx context.Context, id string) {

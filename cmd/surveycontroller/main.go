@@ -10,6 +10,7 @@ import (
 
 	"github.com/SurveyController/SurveyConsole/internal/api"
 	"github.com/SurveyController/SurveyConsole/internal/logging"
+	"github.com/SurveyController/SurveyConsole/internal/tasks"
 )
 
 var version = "0.1.0"
@@ -20,7 +21,7 @@ func main() {
 		addr = "127.0.0.1:19178"
 	}
 
-	manager, err := api.DefaultTaskManager()
+	manager, err := tasks.DefaultTaskManager()
 	if err != nil {
 		logging.ErrorFields("初始化任务存储失败", logging.F("error", err))
 		os.Exit(1)
