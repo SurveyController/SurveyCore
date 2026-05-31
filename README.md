@@ -69,6 +69,37 @@ SURVEY_PORT=8080
 | `POST` | `/api/tasks/{id}/stop` | 停止指定任务。任务不存在时返回错误。 |
 | `POST` | `/api/qrcode/decode` | 从二维码图片中解析问卷链接。 |
 
+## 配置兼容
+
+`POST /api/tasks` 使用与 Python 原项目 `SurveyController` 运行配置一致的 JSON 字段。Go 服务会读取已支持字段，并忽略 Python 端内部字段或未来扩展字段，例如 `_ai_config_present`，以保证同一份配置可以从桌面端无损传入核心 API。
+
+其他请求包络（例如 `/api/surveys/parse`、`/api/configs`）保持严格 JSON 校验，避免调用方把错误参数静默传入。
+
+## 错误响应
+
+API 错误统一返回稳定错误码、用户消息和调试详情：
+
+```json
+{
+  "error": "任务配置无效",
+  "code": "validation_error",
+  "message": "任务配置无效",
+  "detail": "url 不能为空"
+}
+```
+
+常见错误码：
+
+| 错误码 | 含义 |
+|---|---|
+| `invalid_json` | JSON 请求体格式错误，或包含不被该接口接受的字段。 |
+| `invalid_request` | 请求格式不符合接口要求，例如 multipart 表单无效。 |
+| `invalid_query` | 查询参数无效，例如日志游标或条数非法。 |
+| `validation_error` | 业务参数未通过校验。 |
+| `not_found` | 任务或资源不存在。 |
+| `upstream_error` | 问卷平台解析、配置生成等上游调用失败。 |
+| `internal_error` | 服务内部错误。 |
+
 ## 任务状态
 
 | 状态 | 含义 |
@@ -79,6 +110,12 @@ SURVEY_PORT=8080
 | `failed` | 执行失败。 |
 | `stopped` | 已停止。 |
 | `interrupted` | 服务重启导致中断。 |
+
+## 能力边界
+
+SurveyCore 是本地 HTTP/API 化的核心执行内核。Python 项目继续负责桌面 GUI、安装更新和用户交互；Go 项目负责解析、配置、任务执行、状态、日志和可被桌面端调用的稳定 API。
+
+SurveyCore 不包含 PySide GUI，也不引入 Playwright、Selenium 或浏览器兼容提交层。
 
 ## 许可证
 

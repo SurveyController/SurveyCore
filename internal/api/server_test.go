@@ -41,6 +41,40 @@ func TestCreateTaskReturnsTaskID(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAcceptsPythonConfigExtraFields(t *testing.T) {
+	server := newTestServer(t)
+	reqBody := `{
+		"url":"https://www.wjx.cn/vm/test.aspx",
+		"target":1,
+		"_ai_config_present":true,
+		"python_only_future_field":"ignored"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateTaskRejectsInvalidJSONWithStructuredError(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(`{"url":`))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "invalid_json" || apiErr.Message == "" || apiErr.Detail == "" {
+		t.Fatalf("error = %#v, want invalid_json with message and detail", apiErr)
+	}
+}
+
 func TestGetAndStopTask(t *testing.T) {
 	server := newTestServer(t)
 	task, err := server.manager.Create(t.Context(), nilRuntimeConfig())
@@ -73,6 +107,10 @@ func TestParseSurveyMissingURLReturns400(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "validation_error" {
+		t.Fatalf("code = %q, want validation_error", apiErr.Code)
+	}
 }
 
 func TestDecodeQRMissingImageReturns400(t *testing.T) {
@@ -86,6 +124,10 @@ func TestDecodeQRMissingImageReturns400(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "validation_error" {
+		t.Fatalf("code = %q, want validation_error", apiErr.Code)
 	}
 }
 
@@ -122,6 +164,19 @@ func TestTaskLogsRejectsInvalidCursor(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "invalid_query" {
+		t.Fatalf("code = %q, want invalid_query", apiErr.Code)
+	}
+}
+
+func decodeAPIError(t *testing.T, rec *httptest.ResponseRecorder) errorResponse {
+	t.Helper()
+	var apiErr errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &apiErr); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	return apiErr
 }
 
 func newTestServer(t *testing.T) *Server {
