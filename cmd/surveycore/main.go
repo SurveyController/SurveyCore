@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,9 +20,10 @@ import (
 var version = "0.1.0"
 
 func main() {
-	addr := os.Getenv("SURVEYCORE_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:19178"
+	addr, err := listenAddr()
+	if err != nil {
+		logging.ErrorFields("监听端口配置错误", logging.F("error", err))
+		os.Exit(1)
 	}
 
 	manager, err := tasks.DefaultTaskManager()
@@ -64,4 +69,16 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Info("API 服务已关闭")
+}
+
+func listenAddr() (string, error) {
+	port := strings.TrimSpace(os.Getenv("SURVEY_PORT"))
+	if port == "" {
+		port = "19178"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("SURVEY_PORT 必须是 1 到 65535 之间的端口号")
+	}
+	return net.JoinHostPort("localhost", port), nil
 }

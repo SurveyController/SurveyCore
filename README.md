@@ -9,22 +9,23 @@
 
 ## 支持平台
 
-- 问卷星
-- 腾讯问卷
-- Credamo 见数
+- [x] 问卷星
+- [x] 腾讯问卷
+- [x] Credamo 见数
+- [ ] ...（欢迎贡献！）
 
 ## 服务地址
 
 默认监听：
 
 ```text
-127.0.0.1:19178
+localhost:19178
 ```
 
-可用环境变量修改：
+只能用环境变量修改端口：
 
 ```text
-SURVEYCORE_ADDR=127.0.0.1:8080
+SURVEY_PORT=8080
 ```
 
 ## 接口列表
@@ -33,13 +34,13 @@ SURVEYCORE_ADDR=127.0.0.1:8080
 |---|---|---|
 | `GET` | `/api/health` | 健康检查。服务可用时返回正常状态。 |
 | `GET` | `/api/version` | 读取当前服务版本号。 |
+| `GET` | `/api/tasks` | 查询任务列表。按创建时间倒序返回。 |
+| `GET` | `/api/tasks/{id}` | 查询单个任务详情。 |
+| `GET` | `/api/tasks/{id}/logs` | 读取指定任务日志。 |
 | `POST` | `/api/surveys/parse` | 解析问卷链接，返回问卷标题、平台和题目结构。不会提交答案。 |
 | `POST` | `/api/configs` | 生成默认运行配置。传入问卷链接时会先解析问卷，再补全题目配置；不传链接时返回空模板。 |
 | `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。 |
-| `GET` | `/api/tasks` | 查询任务列表。按创建时间倒序返回。 |
-| `GET` | `/api/tasks/{id}` | 查询单个任务详情。 |
 | `POST` | `/api/tasks/{id}/stop` | 停止指定任务。任务不存在时返回错误。 |
-| `GET` | `/api/tasks/{id}/logs` | 读取指定任务日志。 |
 | `POST` | `/api/qrcode/decode` | 从二维码图片中解析问卷链接。 |
 
 ## 任务状态
