@@ -11,8 +11,8 @@ import (
 	"github.com/SurveyController/SurveyCore/internal/domain"
 )
 
-// Default UA keys for random user agent
-var DefaultRandomUAKeys = []string{"wechat", "mobile", "pc"}
+// Default UA keys for random user agent, matching Python's USER_AGENT_PRESETS.
+var DefaultRandomUAKeys = []string{"wechat_android", "mobile_android", "pc_web"}
 
 const (
 	CurrentConfigSchemaVersion = 6
@@ -171,10 +171,16 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 	for key, value := range raw {
 		normalized[key] = value
 	}
-	for _, key := range []string{"target", "threads", "random_ip_user_id", "random_ip_lease_minute", "reverse_fill_start_row", "reverse_fill_threads"} {
+	for _, key := range []string{"target", "threads", "random_ip_user_id", "random_ip_lease_minute"} {
 		if value, ok := raw[key]; ok {
 			normalized[key] = rawConfigInt(value, 0)
 		}
+	}
+	if value, ok := raw["reverse_fill_start_row"]; ok {
+		normalized["reverse_fill_start_row"] = rawMinInt(value, 1, 1)
+	}
+	if value, ok := raw["reverse_fill_threads"]; ok {
+		normalized["reverse_fill_threads"] = rawMinInt(value, 1, 1)
 	}
 	for _, key := range []string{"random_ip_enabled", "random_ua_enabled", "fail_stop_enabled", "pause_on_aliyun_captcha", "reliability_mode_enabled", "reverse_fill_enabled"} {
 		if value, ok := raw[key]; ok {
@@ -202,7 +208,19 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 		normalized["answer_datetime_window"] = rawAnswerDatetimeWindow(value)
 	}
 	if value, ok := raw["random_ua_ratios"]; ok {
-		normalized["random_ua_ratios"] = rawIntMap(value)
+		normalized["random_ua_ratios"] = rawRandomUARatios(value)
+	}
+	if value, ok := raw["random_ua_keys"]; ok {
+		normalized["random_ua_keys"] = rawRandomUAKeys(value)
+	}
+	if value, ok := raw["proxy_source"]; ok {
+		normalized["proxy_source"] = rawProxySource(value)
+	}
+	if value, ok := raw["ai_mode"]; ok {
+		normalized["ai_mode"] = rawAIMode(value)
+	}
+	if value, ok := raw["reverse_fill_format"]; ok {
+		normalized["reverse_fill_format"] = rawReverseFillFormat(value)
 	}
 	return normalized
 }
@@ -217,6 +235,14 @@ func rawConfigFloat(raw json.RawMessage, fallback float64) json.RawMessage {
 
 func rawConfigBool(raw json.RawMessage, fallback bool) json.RawMessage {
 	return configMustJSON(configToBool(configAnyFromRaw(raw), fallback))
+}
+
+func rawMinInt(raw json.RawMessage, fallback, minValue int) json.RawMessage {
+	value := configToInt(configAnyFromRaw(raw), fallback)
+	if value < minValue {
+		value = minValue
+	}
+	return configMustJSON(value)
 }
 
 func rawString(raw json.RawMessage) json.RawMessage {
@@ -288,16 +314,83 @@ func rawAnswerDatetimeWindow(raw json.RawMessage) json.RawMessage {
 	return configMustJSON(result)
 }
 
-func rawIntMap(raw json.RawMessage) json.RawMessage {
-	var source map[string]any
-	if err := json.Unmarshal(raw, &source); err != nil {
-		return configMustJSON(map[string]int{})
+func rawRandomUAKeys(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok {
+		return configMustJSON([]string{})
 	}
-	result := make(map[string]int, len(source))
-	for key, value := range source {
-		result[key] = configToInt(value, 0)
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		key := strings.TrimSpace(fmt.Sprint(item))
+		if isValidRandomUAKey(key) {
+			result = append(result, key)
+		}
 	}
 	return configMustJSON(result)
+}
+
+func rawRandomUARatios(raw json.RawMessage) json.RawMessage {
+	var source map[string]any
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return configMustJSON(defaultRandomUARatios())
+	}
+	total := 0
+	for _, value := range source {
+		total += configToInt(value, 0)
+	}
+	if total != 100 {
+		return configMustJSON(defaultRandomUARatios())
+	}
+	result := map[string]int{
+		"wechat": configToInt(source["wechat"], 33),
+		"mobile": configToInt(source["mobile"], 33),
+		"pc":     configToInt(source["pc"], 34),
+	}
+	return configMustJSON(result)
+}
+
+func rawProxySource(raw json.RawMessage) json.RawMessage {
+	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
+	switch value {
+	case "default", "benefit", "custom":
+		return configMustJSON(value)
+	default:
+		return configMustJSON("default")
+	}
+}
+
+func rawAIMode(raw json.RawMessage) json.RawMessage {
+	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
+	switch value {
+	case "free", "provider":
+		return configMustJSON(value)
+	default:
+		return configMustJSON("free")
+	}
+}
+
+func rawReverseFillFormat(raw json.RawMessage) json.RawMessage {
+	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
+	switch value {
+	case domain.ReverseFillFormatAuto, domain.ReverseFillFormatWJXSequence, domain.ReverseFillFormatWJXScore, domain.ReverseFillFormatWJXText:
+		return configMustJSON(value)
+	default:
+		return configMustJSON(domain.ReverseFillFormatAuto)
+	}
+}
+
+func defaultRandomUARatios() map[string]int {
+	return map[string]int{"wechat": 33, "mobile": 33, "pc": 34}
+}
+
+func isValidRandomUAKey(key string) bool {
+	switch key {
+	case "wechat_android", "mobile_android", "pc_web", "wechat", "mobile", "pc":
+		return true
+	default:
+		return false
+	}
 }
 
 func configAnyFromRaw(raw json.RawMessage) any {

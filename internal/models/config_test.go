@@ -60,6 +60,16 @@ func TestRuntimeConfigSerializationAddsPythonSchemaMetadata(t *testing.T) {
 	}
 }
 
+func TestDefaultRuntimeConfigUsesPythonRandomUAKeys(t *testing.T) {
+	cfg := NewDefaultRuntimeConfig()
+	if len(cfg.RandomUAKeys) != 3 ||
+		cfg.RandomUAKeys[0] != "wechat_android" ||
+		cfg.RandomUAKeys[1] != "mobile_android" ||
+		cfg.RandomUAKeys[2] != "pc_web" {
+		t.Fatalf("random UA keys = %#v, want Python preset defaults", cfg.RandomUAKeys)
+	}
+}
+
 func TestRuntimeConfigSerializationPreservesPythonSchemaMetadata(t *testing.T) {
 	cfg, err := DeserializeRuntimeConfig([]byte(`{
 		"url":"https://www.wjx.cn/vm/test.aspx",
@@ -114,6 +124,7 @@ func TestRuntimeConfigAcceptsPythonLooseScalarFields(t *testing.T) {
 		"submit_interval":["7","9"],
 		"answer_duration":100,
 		"answer_datetime_window":["2026-02-10 09:00:00","bad"],
+		"random_ua_keys":["pc_web","bad","wechat_android"],
 		"random_ua_ratios":{"wechat":"40","mobile":30,"pc":"30"}
 	}`))
 	if err != nil {
@@ -140,6 +151,9 @@ func TestRuntimeConfigAcceptsPythonLooseScalarFields(t *testing.T) {
 	if cfg.RandomUARatios["wechat"] != 40 || cfg.RandomUARatios["mobile"] != 30 || cfg.RandomUARatios["pc"] != 30 {
 		t.Fatalf("ua ratios = %#v, want parsed int map", cfg.RandomUARatios)
 	}
+	if len(cfg.RandomUAKeys) != 2 || cfg.RandomUAKeys[0] != "pc_web" || cfg.RandomUAKeys[1] != "wechat_android" {
+		t.Fatalf("ua keys = %#v, want Python preset keys filtered", cfg.RandomUAKeys)
+	}
 }
 
 func TestRuntimeConfigAcceptsPythonLooseAnswerDurationLists(t *testing.T) {
@@ -164,5 +178,34 @@ func TestRuntimeConfigAcceptsPythonLooseAnswerDurationLists(t *testing.T) {
 				t.Fatalf("answer duration = %#v, want %#v", cfg.AnswerDuration, tt.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeConfigNormalizesPythonCodecBoundaries(t *testing.T) {
+	cfg, err := DeserializeRuntimeConfig([]byte(`{
+		"proxy_source":"bad",
+		"ai_mode":"unsupported",
+		"reverse_fill_format":"spreadsheet",
+		"reverse_fill_start_row":0,
+		"reverse_fill_threads":"0",
+		"random_ua_ratios":{"wechat":20,"mobile":20,"pc":20}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProxySource != "default" {
+		t.Fatalf("proxy source = %q, want default", cfg.ProxySource)
+	}
+	if cfg.AIMode != "free" {
+		t.Fatalf("ai mode = %q, want free", cfg.AIMode)
+	}
+	if cfg.ReverseFillFormat != ReverseFillFormatAuto {
+		t.Fatalf("reverse fill format = %q, want auto", cfg.ReverseFillFormat)
+	}
+	if cfg.ReverseFillStartRow != 1 || cfg.ReverseFillThreads != 1 {
+		t.Fatalf("reverse fill start/threads = %d/%d, want 1/1", cfg.ReverseFillStartRow, cfg.ReverseFillThreads)
+	}
+	if cfg.RandomUARatios["wechat"] != 33 || cfg.RandomUARatios["mobile"] != 33 || cfg.RandomUARatios["pc"] != 34 {
+		t.Fatalf("ua ratios = %#v, want Python defaults for invalid total", cfg.RandomUARatios)
 	}
 }

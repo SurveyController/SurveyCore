@@ -87,7 +87,7 @@ SURVEY_PORT=8080
 
 Go 生成或导出的配置默认带 `config_schema_version=6`，并在存在 AI 配置时写入 `_ai_config_present=true`，以便 Python 原项目按当前配置 schema 直接接回。若导入的 Python 配置已经带有这些字段，Go 会优先保留原值。
 
-配置读取会兼容 Python codec 的宽松输入形态：数字字段可接受字符串数字，布尔字段可接受 `true/false`、`1/0`、`yes/no`，`answer_duration` 可接受旧版单值或单元素数组并转换为 Python 一致的上下浮动范围，`answer_datetime_window` 会按 `YYYY-MM-DD HH:MM:SS` 归一化。
+配置读取会兼容 Python codec 的宽松输入形态：数字字段可接受字符串数字，布尔字段可接受 `true/false`、`1/0`、`yes/no`，`answer_duration` 可接受旧版单值或单元素数组并转换为 Python 一致的上下浮动范围，`answer_datetime_window` 会按 `YYYY-MM-DD HH:MM:SS` 归一化。随机 UA 支持 Python 当前 preset 键 `wechat_android`、`mobile_android`、`pc_web`，同时兼容旧版 Go 键 `wechat`、`mobile`、`pc`。
 
 其他请求包络（例如 `/api/surveys/parse`、`/api/configs`）保持严格 JSON 校验，避免调用方把错误参数静默传入。
 

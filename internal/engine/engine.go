@@ -345,9 +345,12 @@ func sampleIntervalDelay(bounds [2]int) time.Duration {
 }
 
 var userAgentProfiles = map[string]string{
-	"wechat": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.44",
-	"mobile": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-	"pc":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	"pc_web":         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+	"mobile_android": "Mozilla/5.0 (Linux; Android 16; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36",
+	"wechat_android": "Mozilla/5.0 (Linux; Android 16; Pixel 8 Build/BP22.250124.009; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/121.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43.2460(0x28002B3B) Process/appbrand0 WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64",
+	"wechat":         "Mozilla/5.0 (Linux; Android 16; Pixel 8 Build/BP22.250124.009; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/121.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43.2460(0x28002B3B) Process/appbrand0 WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64",
+	"mobile":         "Mozilla/5.0 (Linux; Android 16; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36",
+	"pc":             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
 }
 
 func sampleUserAgent(cfg *execution.ExecutionConfig) string {
@@ -356,7 +359,7 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 	}
 	keys := cfg.RandomUserAgentKeys
 	if len(keys) == 0 {
-		keys = []string{"wechat", "mobile", "pc"}
+		keys = []string{"wechat_android", "mobile_android", "pc_web"}
 	}
 
 	total := 0
@@ -364,7 +367,7 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 		if _, ok := userAgentProfiles[key]; !ok {
 			continue
 		}
-		weight := cfg.UserAgentRatios[key]
+		weight := cfg.UserAgentRatios[userAgentRatioKey(key)]
 		if weight <= 0 {
 			weight = 1
 		}
@@ -380,7 +383,7 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 		if !ok {
 			continue
 		}
-		weight := cfg.UserAgentRatios[key]
+		weight := cfg.UserAgentRatios[userAgentRatioKey(key)]
 		if weight <= 0 {
 			weight = 1
 		}
@@ -390,6 +393,19 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 		pick -= weight
 	}
 	return ""
+}
+
+func userAgentRatioKey(key string) string {
+	switch key {
+	case "wechat_android":
+		return "wechat"
+	case "mobile_android":
+		return "mobile"
+	case "pc_web":
+		return "pc"
+	default:
+		return key
+	}
 }
 
 // ParseSurvey parses a survey URL using the appropriate provider.

@@ -33,14 +33,26 @@ func TestSampleUserAgentHonorsDisabledAndRatios(t *testing.T) {
 
 	cfg := &execution.ExecutionConfig{
 		RandomUserAgentEnabled: true,
-		RandomUserAgentKeys:    []string{"pc"},
+		RandomUserAgentKeys:    []string{"pc_web"},
 		UserAgentRatios:        map[string]int{"pc": 100},
 	}
 	ua := sampleUserAgent(cfg)
 	if ua == "" {
 		t.Fatal("random UA should be selected when enabled")
 	}
-	if ua != userAgentProfiles["pc"] {
+	if ua != userAgentProfiles["pc_web"] {
 		t.Fatalf("UA = %q, want pc profile", ua)
+	}
+}
+
+func TestSampleUserAgentKeepsLegacyKeys(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		RandomUserAgentEnabled: true,
+		RandomUserAgentKeys:    []string{"mobile"},
+		UserAgentRatios:        map[string]int{"mobile": 100},
+	}
+	ua := sampleUserAgent(cfg)
+	if ua != userAgentProfiles["mobile"] {
+		t.Fatalf("UA = %q, want legacy mobile profile", ua)
 	}
 }
