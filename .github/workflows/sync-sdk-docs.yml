@@ -1,0 +1,63 @@
+name: Sync SDK docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - docs/sdk/**
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: Target documentation repository
+        required: true
+        default: SurveyController/SurveyDoc
+      target_branch:
+        description: Target documentation branch
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  TARGET_REPOSITORY: ${{ github.event.inputs.target_repository || vars.SURVEYDOC_REPOSITORY || 'SurveyController/SurveyDoc' }}
+  TARGET_BRANCH: ${{ github.event.inputs.target_branch || vars.SURVEYDOC_BRANCH || 'main' }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout SurveyCore
+        uses: actions/checkout@v4
+        with:
+          path: SurveyCore
+
+      - name: Checkout SurveyDoc
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPOSITORY }}
+          ref: ${{ env.TARGET_BRANCH }}
+          token: ${{ secrets.SURVEYDOC_SYNC_TOKEN }}
+          path: SurveyDoc
+
+      - name: Sync SDK docs
+        run: |
+          rm -rf SurveyDoc/sdk
+          mkdir -p SurveyDoc/sdk
+          cp -R SurveyCore/docs/sdk/. SurveyDoc/sdk/
+
+      - name: Commit and push changes
+        working-directory: SurveyDoc
+        run: |
+          if git diff --quiet -- sdk; then
+            echo "SDK docs are already up to date."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sdk
+          git commit -m "docs: 同步 SurveyCore SDK 文档"
+          git push origin "HEAD:${TARGET_BRANCH}"
