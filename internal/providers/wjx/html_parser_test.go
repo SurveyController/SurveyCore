@@ -161,3 +161,30 @@ func TestParseHTMLExtractsJumpRules(t *testing.T) {
 		t.Fatalf("jump rule = %#v, want option 1 -> question 5", got.JumpRules[0])
 	}
 }
+
+func TestParseHTMLTreatsWjxMobileJumpOneAndMinusOneAsTerminate(t *testing.T) {
+	html := `
+<html><body>
+  <div topic="1" id="div1" type="3" hasjump="1" anyjump="0">
+    <div class="topichtml">1. 是否符合条件</div>
+    <div class="ui-controlgroup">
+      <div><input type="radio" value="1" id="q1_1" name="q1" jumpto="1" /><span class="label">是，应届毕业生</span></div>
+      <div><input type="radio" value="2" id="q1_2" name="q1" jumpto="-1" /><span class="label">否，暂时不是应届毕业生或准毕业生</span></div>
+    </div>
+  </div>
+</body></html>`
+
+	questions, _, err := ParseHTML(html)
+	if err != nil {
+		t.Fatalf("ParseHTML returned error: %v", err)
+	}
+	got := questions[0]
+	if !got.HasJump || got.LogicParseStatus != "complete" || len(got.JumpRules) != 2 {
+		t.Fatalf("jump metadata = %#v, want two terminate jump rules", got)
+	}
+	for _, rule := range got.JumpRules {
+		if rule["terminates_survey"] != true {
+			t.Fatalf("jump rule = %#v, want terminates_survey true", rule)
+		}
+	}
+}

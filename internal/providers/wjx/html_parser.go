@@ -473,7 +473,7 @@ func extractJumpRules(s *goquery.Selection, optionTexts []string) (bool, []map[s
 			return
 		}
 		target := parseJumpTarget(jumptoRaw)
-		if target > 0 {
+		if target != 0 {
 			optionText := ""
 			if optionIndex >= 0 && optionIndex < len(optionTexts) {
 				optionText = optionTexts[optionIndex]
@@ -489,7 +489,7 @@ func extractJumpRules(s *goquery.Selection, optionTexts []string) (bool, []map[s
 	})
 
 	if hasJumpAttr {
-		if target := parseJumpTarget(firstAttr(s, "jumpto", "data-jumpto", "goto", "data-goto", "anyjump", "data-anyjump")); target > 0 {
+		if target := parseJumpTarget(firstAttr(s, "jumpto", "data-jumpto", "goto", "data-goto", "anyjump", "data-anyjump")); target != 0 {
 			duplicate := false
 			for _, rule := range rules {
 				if intFromRule(rule, "option_index") < 0 && intFromRule(rule, "jumpto") == target {
