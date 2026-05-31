@@ -85,6 +85,8 @@ SURVEY_PORT=8080
 
 `POST /api/configs/import` 和 `POST /api/configs/export` 同样按兼容模式读取运行配置，适合桌面端在 Python 与 Go 核心之间传递同一份配置 JSON。导入会补齐 Go 默认值；导出会返回 `Content-Disposition` 附件响应。Go 暂不使用但来自 Python 的字段，例如 `_ai_config_present`、`config_schema_version` 或未来扩展字段，会保存在运行配置的额外字段区并在再次导出时回写，避免桌面端配置往返丢字段。
 
+Go 生成或导出的配置默认带 `config_schema_version=6`，并在存在 AI 配置时写入 `_ai_config_present=true`，以便 Python 原项目按当前配置 schema 直接接回。若导入的 Python 配置已经带有这些字段，Go 会优先保留原值。
+
 配置读取会兼容 Python codec 的宽松输入形态：数字字段可接受字符串数字，布尔字段可接受 `true/false`、`1/0`、`yes/no`，`answer_duration` 可接受旧版单值或单元素数组并转换为 Python 一致的上下浮动范围，`answer_datetime_window` 会按 `YYYY-MM-DD HH:MM:SS` 归一化。
 
 其他请求包络（例如 `/api/surveys/parse`、`/api/configs`）保持严格 JSON 校验，避免调用方把错误参数静默传入。

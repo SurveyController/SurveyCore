@@ -40,6 +40,48 @@ func TestRuntimeConfigPreservesPythonExtraFields(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigSerializationAddsPythonSchemaMetadata(t *testing.T) {
+	cfg := NewDefaultRuntimeConfig()
+	cfg.URL = "https://www.wjx.cn/vm/test.aspx"
+
+	data, err := SerializeRuntimeConfig(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["config_schema_version"] != float64(CurrentConfigSchemaVersion) {
+		t.Fatalf("payload = %#v, want Python schema version", payload)
+	}
+	if payload["_ai_config_present"] != true {
+		t.Fatalf("payload = %#v, want AI config marker", payload)
+	}
+}
+
+func TestRuntimeConfigSerializationPreservesPythonSchemaMetadata(t *testing.T) {
+	cfg, err := DeserializeRuntimeConfig([]byte(`{
+		"url":"https://www.wjx.cn/vm/test.aspx",
+		"_ai_config_present":false,
+		"config_schema_version":5
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := SerializeRuntimeConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["config_schema_version"] != float64(5) || payload["_ai_config_present"] != false {
+		t.Fatalf("payload = %#v, want imported metadata preserved", payload)
+	}
+}
+
 func TestRuntimeConfigCloneKeepsExtraFields(t *testing.T) {
 	original, err := DeserializeRuntimeConfig([]byte(`{
 		"url":"https://www.wjx.cn/vm/test.aspx",

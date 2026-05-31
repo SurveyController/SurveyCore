@@ -14,7 +14,10 @@ import (
 // Default UA keys for random user agent
 var DefaultRandomUAKeys = []string{"wechat", "mobile", "pc"}
 
-const maxAnswerDurationSeconds = 30 * 60
+const (
+	CurrentConfigSchemaVersion = 6
+	maxAnswerDurationSeconds   = 30 * 60
+)
 
 // RuntimeConfig is the top-level user-facing configuration object.
 type RuntimeConfig struct {
@@ -144,7 +147,23 @@ func (cfg RuntimeConfig) MarshalJSON() ([]byte, error) {
 		}
 		raw[key] = value
 	}
+	if _, ok := raw["config_schema_version"]; !ok {
+		raw["config_schema_version"] = configMustJSON(CurrentConfigSchemaVersion)
+	}
+	if _, ok := raw["_ai_config_present"]; !ok {
+		raw["_ai_config_present"] = configMustJSON(cfg.hasAIConfig())
+	}
 	return json.Marshal(raw)
+}
+
+func (cfg RuntimeConfig) hasAIConfig() bool {
+	return cfg.AIMode != "" ||
+		cfg.AIProvider != "" ||
+		cfg.AIAPIKey != "" ||
+		cfg.AIBaseURL != "" ||
+		cfg.AIAPIProtocol != "" ||
+		cfg.AIModel != "" ||
+		cfg.AISystemPrompt != ""
 }
 
 func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.RawMessage {
