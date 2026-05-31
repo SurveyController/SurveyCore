@@ -60,6 +60,44 @@ func TestCreateTaskAcceptsPythonConfigExtraFields(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAcceptsPythonConfigEnvelope(t *testing.T) {
+	server := newTestServer(t)
+	reqBody := `{
+		"config":{
+			"url":"https://www.wjx.cn/vm/test.aspx",
+			"target":1,
+			"_ai_config_present":true,
+			"python_only_future_field":"task-envelope"
+		}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	taskID, _ := created["task_id"].(string)
+	if taskID == "" {
+		t.Fatalf("response = %#v, want task_id", created)
+	}
+	task, ok := server.manager.Get(taskID)
+	if !ok {
+		t.Fatalf("created task %q not found", taskID)
+	}
+	if task.Config == nil || task.Config.URL != "https://www.wjx.cn/vm/test.aspx" {
+		t.Fatalf("task config = %#v, want envelope config", task.Config)
+	}
+	if string(task.Config.ExtraFields["python_only_future_field"]) != `"task-envelope"` {
+		t.Fatalf("extra fields = %#v, want envelope extras preserved", task.Config.ExtraFields)
+	}
+}
+
 func TestCreateTaskRejectsInvalidJSONWithStructuredError(t *testing.T) {
 	server := newTestServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(`{"url":`))

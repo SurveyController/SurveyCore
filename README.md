@@ -69,7 +69,7 @@ SURVEY_PORT=8080
 | `POST` | `/api/configs` | 生成默认运行配置。传入问卷链接时会先解析问卷，再补全题目配置；不传链接时返回空模板。 |
 | `POST` | `/api/configs/import` | 导入并标准化 Python/Go 兼容运行配置 JSON。支持直接配置对象或 `{ "config": ... }` 包络，并保留 Python 额外字段。 |
 | `POST` | `/api/configs/export` | 导出标准化运行配置 JSON 文件。支持直接配置对象或 `{ "config": ... }` 包络，并回写 Python 额外字段。 |
-| `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。 |
+| `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。支持直接配置对象或 `{ "config": ... }` 包络。 |
 | `POST` | `/api/tasks/{id}/stop` | 停止指定任务。任务不存在时返回错误。 |
 | `POST` | `/api/ai/test` | 测试当前 AI 配置是否可用，成功时返回模型回复预览。 |
 | `GET` | `/api/random-ip/session` | 读取本地随机 IP 设备身份、账号和额度快照。 |
@@ -81,7 +81,7 @@ SURVEY_PORT=8080
 
 ## 配置兼容
 
-`POST /api/tasks` 使用与 Python 原项目 `SurveyController` 运行配置一致的 JSON 字段。Go 服务会读取已支持字段，并忽略 Python 端内部字段或未来扩展字段，例如 `_ai_config_present`，以保证同一份配置可以从桌面端无损传入核心 API。
+`POST /api/tasks` 使用与 Python 原项目 `SurveyController` 运行配置一致的 JSON 字段。Go 服务会读取已支持字段，并忽略 Python 端内部字段或未来扩展字段，例如 `_ai_config_present`，以保证同一份配置可以从桌面端无损传入核心 API。任务创建既支持直接传运行配置对象，也支持 Python 桌面端常用的 `{ "config": ... }` 包络。
 
 `POST /api/configs/import` 和 `POST /api/configs/export` 同样按兼容模式读取运行配置，适合桌面端在 Python 与 Go 核心之间传递同一份配置 JSON。导入会补齐 Go 默认值；导出会返回 `Content-Disposition` 附件响应。Go 暂不使用但来自 Python 的字段，例如 `_ai_config_present`、`config_schema_version` 或未来扩展字段，会保存在运行配置的额外字段区并在再次导出时回写，避免桌面端配置往返丢字段。
 

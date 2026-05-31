@@ -76,12 +76,12 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
-	var cfg models.RuntimeConfig
-	if err := decodeCompatibleJSON(r, &cfg); err != nil {
+	cfg, err := readCompatibleRuntimeConfig(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "配置 JSON 请求体无效", err)
 		return
 	}
-	task, err := s.manager.Create(context.Background(), &cfg)
+	task, err := s.manager.Create(context.Background(), cfg)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", "任务配置无效", err)
 		return
