@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/SurveyController/SurveyCore/internal/models"
+	"github.com/SurveyController/SurveyCore/internal/execution"
 )
 
 func TestLoadUsesDefaultsWhenFileMissing(t *testing.T) {
@@ -18,9 +18,6 @@ func TestLoadUsesDefaultsWhenFileMissing(t *testing.T) {
 	}
 	if cfg.Storage.DBPath != defaultDBPath {
 		t.Fatalf("db_path = %q, want %q", cfg.Storage.DBPath, defaultDBPath)
-	}
-	if cfg.RandomIP.APIURL != defaultRandomIPAPIURL {
-		t.Fatalf("random ip api = %q, want default", cfg.RandomIP.APIURL)
 	}
 	if cfg.AI.BaseURL != defaultAIBaseURL || cfg.AI.Model != defaultAIModel {
 		t.Fatalf("ai defaults = %q/%q, want defaults", cfg.AI.BaseURL, cfg.AI.Model)
@@ -35,9 +32,6 @@ port = 19999
 
 [storage]
 db_path = "data/from-file.db"
-
-[random_ip]
-api_url = "https://proxy.example.test/extract"
 
 [ai]
 base_url = "https://ai.example.test/v1"
@@ -54,9 +48,6 @@ api_key = "test-key"
 	}
 	if cfg.Storage.DBPath != "data/from-file.db" {
 		t.Fatalf("db_path = %q, want file value", cfg.Storage.DBPath)
-	}
-	if cfg.RandomIP.APIURL != "https://proxy.example.test/extract" {
-		t.Fatalf("random ip api = %q, want file value", cfg.RandomIP.APIURL)
 	}
 	if cfg.AI.BaseURL != "https://ai.example.test/v1" || cfg.AI.Model != "test-model" || cfg.AI.APIKey != "test-key" {
 		t.Fatalf("ai config = %#v, want file values", cfg.AI)
@@ -96,28 +87,22 @@ port = 70000
 	}
 }
 
-func TestApplyRuntimeDefaultsFillsOnlyEmptyValues(t *testing.T) {
+func TestApplyExecutionDefaultsFillsOnlyEmptyAIValues(t *testing.T) {
 	cfg := Config{
-		RandomIP: RandomIPConfig{APIURL: "https://proxy.example.test/extract"},
-		AI:       AIConfig{BaseURL: "https://ai.example.test/v1", Model: "test-model", APIKey: "test-key"},
+		AI: AIConfig{BaseURL: "https://ai.example.test/v1", Model: "test-model", APIKey: "test-key"},
 	}
-	runtime := models.RuntimeConfig{
-		AIModel: "custom-model",
-	}
+	execCfg := &execution.ExecutionConfig{AIModel: "custom-model"}
 
-	cfg.ApplyRuntimeDefaults(&runtime)
+	cfg.ApplyExecutionDefaults(execCfg)
 
-	if runtime.IPExtractEndpoint != "https://proxy.example.test/extract" {
-		t.Fatalf("ip endpoint = %q, want config default", runtime.IPExtractEndpoint)
+	if execCfg.AIBaseURL != "https://ai.example.test/v1" {
+		t.Fatalf("ai base url = %q, want config default", execCfg.AIBaseURL)
 	}
-	if runtime.AIBaseURL != "https://ai.example.test/v1" {
-		t.Fatalf("ai base url = %q, want config default", runtime.AIBaseURL)
+	if execCfg.AIModel != "custom-model" {
+		t.Fatalf("ai model = %q, want request value preserved", execCfg.AIModel)
 	}
-	if runtime.AIModel != "custom-model" {
-		t.Fatalf("ai model = %q, want request value preserved", runtime.AIModel)
-	}
-	if runtime.AIAPIKey != "test-key" {
-		t.Fatalf("ai key = %q, want config default", runtime.AIAPIKey)
+	if execCfg.AIAPIKey != "test-key" {
+		t.Fatalf("ai key = %q, want config default", execCfg.AIAPIKey)
 	}
 }
 

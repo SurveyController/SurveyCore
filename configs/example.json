@@ -5,14 +5,8 @@
   "threads": 3,
   "submit_interval": [0, 0],
   "answer_duration": [10, 20],
-  "random_ip_enabled": false,
-  "proxy_source": "default",
-  "fail_stop_enabled": true,
-  "pause_on_aliyun_captcha": true,
   "reliability_mode_enabled": true,
   "psycho_target_alpha": 0.85,
-  "ai_mode": "free",
-  "ai_provider": "deepseek",
   "question_entries": [
     {
       "question_type": "single",

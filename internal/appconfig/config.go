@@ -9,24 +9,22 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/SurveyController/SurveyCore/internal/models"
+	"github.com/SurveyController/SurveyCore/internal/execution"
 )
 
 const (
-	DefaultPath           = "configs/surveycore.toml"
-	defaultHost           = "127.0.0.1"
-	defaultPort           = 19178
-	defaultDBPath         = "data/surveycore.db"
-	defaultRandomIPAPIURL = "https://api-wjx.hungrym0.top/api/ip/extract"
-	defaultAIBaseURL      = "https://api.deepseek.com/v1"
-	defaultAIModel        = "deepseek-chat"
+	DefaultPath      = "configs/surveycore.toml"
+	defaultHost      = "127.0.0.1"
+	defaultPort      = 19178
+	defaultDBPath    = "data/surveycore.db"
+	defaultAIBaseURL = "https://api.deepseek.com/v1"
+	defaultAIModel   = "deepseek-chat"
 )
 
 type Config struct {
-	Server   ServerConfig   `toml:"server"`
-	Storage  StorageConfig  `toml:"storage"`
-	RandomIP RandomIPConfig `toml:"random_ip"`
-	AI       AIConfig       `toml:"ai"`
+	Server  ServerConfig  `toml:"server"`
+	Storage StorageConfig `toml:"storage"`
+	AI      AIConfig      `toml:"ai"`
 }
 
 type ServerConfig struct {
@@ -35,10 +33,6 @@ type ServerConfig struct {
 
 type StorageConfig struct {
 	DBPath string `toml:"db_path"`
-}
-
-type RandomIPConfig struct {
-	APIURL string `toml:"api_url"`
 }
 
 type AIConfig struct {
@@ -80,9 +74,6 @@ func Default() Config {
 		Storage: StorageConfig{
 			DBPath: defaultDBPath,
 		},
-		RandomIP: RandomIPConfig{
-			APIURL: defaultRandomIPAPIURL,
-		},
 		AI: AIConfig{
 			BaseURL: defaultAIBaseURL,
 			Model:   defaultAIModel,
@@ -97,9 +88,6 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Storage.DBPath) == "" {
 		return errors.New("storage.db_path 不能为空")
 	}
-	if strings.TrimSpace(c.RandomIP.APIURL) == "" {
-		return errors.New("random_ip.api_url 不能为空")
-	}
 	if strings.TrimSpace(c.AI.BaseURL) == "" {
 		return errors.New("ai.base_url 不能为空")
 	}
@@ -113,12 +101,9 @@ func (c Config) ListenAddr() string {
 	return net.JoinHostPort(defaultHost, strconv.Itoa(c.Server.Port))
 }
 
-func (c Config) ApplyRuntimeDefaults(cfg *models.RuntimeConfig) {
+func (c Config) ApplyExecutionDefaults(cfg *execution.ExecutionConfig) {
 	if cfg == nil {
 		return
-	}
-	if strings.TrimSpace(cfg.IPExtractEndpoint) == "" {
-		cfg.IPExtractEndpoint = strings.TrimSpace(c.RandomIP.APIURL)
 	}
 	if strings.TrimSpace(cfg.AIBaseURL) == "" {
 		cfg.AIBaseURL = strings.TrimSpace(c.AI.BaseURL)

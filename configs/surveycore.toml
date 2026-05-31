@@ -6,12 +6,8 @@ port = 19178
 # 任务和日志数据库路径
 db_path = "data/surveycore.db"
 
-[random_ip]
-# 随机 IP 提取 API
-api_url = ""
-
 [ai]
-# AI 填空配置项
+# 服务端私有 AI 填空配置，不从 HTTP 请求体传入
 base_url = "https://api.deepseek.com/v1"
 model = "deepseek-chat"
 api_key = ""

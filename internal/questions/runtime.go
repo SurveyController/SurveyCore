@@ -47,14 +47,11 @@ func NewRunContextForThread(cfg *execution.ExecutionConfig, state *runstate.Exec
 		consistency:  NewConsistencyContext(ParseAnswerRules(cfg.AnswerRules)),
 		psychometric: buildPsychometricPlanFromConfig(cfg),
 	}
-	if hasAIText(cfg) {
+	if hasAIText(cfg) && strings.TrimSpace(cfg.AIAPIKey) != "" {
 		rt.ai = NewAIClient(AIConfig{
-			Mode:         cfg.AIMode,
-			Provider:     cfg.AIProvider,
-			APIKey:       cfg.AIAPIKey,
-			BaseURL:      cfg.AIBaseURL,
-			Model:        cfg.AIModel,
-			SystemPrompt: cfg.AISystemPrompt,
+			APIKey:  cfg.AIAPIKey,
+			BaseURL: cfg.AIBaseURL,
+			Model:   cfg.AIModel,
 		})
 	}
 	return rt
@@ -244,7 +241,7 @@ func (r *RunContext) GenerateText(meta models.SurveyQuestionMeta, configIdx int,
 	}
 	answer, err := r.ai.GenerateAnswer(title, meta.TypeCode, blankCount)
 	if err != nil || strings.TrimSpace(answer) == "" {
-		return fallback
+		return resolveDynamicTextValue(fallback)
 	}
 	return strings.TrimSpace(answer)
 }

@@ -41,21 +41,24 @@ func TestCreateTaskReturnsTaskID(t *testing.T) {
 	}
 }
 
-func TestCreateTaskAcceptsPythonConfigExtraFields(t *testing.T) {
+func TestCreateTaskRejectsUnknownLegacyFields(t *testing.T) {
 	server := newTestServer(t)
 	reqBody := `{
 		"url":"https://www.wjx.cn/vm/test.aspx",
 		"target":1,
-		"_ai_config_present":true,
-		"python_only_future_field":"ignored"
+		"proxy_source":"default"
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "invalid_json" || apiErr.Detail == "" {
+		t.Fatalf("error = %#v, want invalid_json with detail", apiErr)
 	}
 }
 
@@ -72,6 +75,65 @@ func TestCreateTaskRejectsInvalidJSONWithStructuredError(t *testing.T) {
 	apiErr := decodeAPIError(t, rec)
 	if apiErr.Code != "invalid_json" || apiErr.Message == "" || apiErr.Detail == "" {
 		t.Fatalf("error = %#v, want invalid_json with message and detail", apiErr)
+	}
+}
+
+func TestCreateConfigOmitsRemovedSDKFields(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(`{"url":""}`))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	removedFields := []string{
+		"random_ip_enabled",
+		"proxy_source",
+		"custom_proxy_api",
+		"proxy_area_code",
+		"random_ip_user_id",
+		"random_ip_device_id",
+		"ip_extract_endpoint",
+		"random_ip_lease_minute",
+		"fail_stop_enabled",
+		"pause_on_aliyun_captcha",
+		"ai_mode",
+		"ai_provider",
+		"ai_api_key",
+		"ai_base_url",
+		"ai_api_protocol",
+		"ai_model",
+		"ai_system_prompt",
+	}
+	for _, field := range removedFields {
+		if _, ok := body[field]; ok {
+			t.Fatalf("response contains removed field %q: %s", field, rec.Body.String())
+		}
+	}
+}
+
+func TestCreateTaskAcceptsQuestionAIEnabled(t *testing.T) {
+	server := newTestServer(t)
+	reqBody := `{
+		"url":"https://www.wjx.cn/vm/test.aspx",
+		"target":1,
+		"question_entries":[
+			{"question_type":"text","probabilities":[1],"texts":["fallback"],"ai_enabled":true}
+		]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s, want 202", rec.Code, rec.Body.String())
 	}
 }
 

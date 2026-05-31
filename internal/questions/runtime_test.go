@@ -70,16 +70,24 @@ func TestRunContextAppliesMultipleConstraints(t *testing.T) {
 	}
 }
 
-func TestRunContextGeneratesFreeAIText(t *testing.T) {
+func TestRunContextUsesServerAIForEnabledText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"AI答案"}}]}`))
+	}))
+	defer server.Close()
+
 	cfg := &execution.ExecutionConfig{
-		AIMode:      "free",
+		AIAPIKey:    "test-key",
+		AIBaseURL:   server.URL,
+		AIModel:     "test-model",
 		TextAIFlags: []bool{true},
 	}
 	runtime := NewRunContext(cfg, runstate.NewExecutionState())
 
 	got := runtime.GenerateText(models.SurveyQuestionMeta{Num: 1, Title: "评价"}, 0, "fallback", 1)
-	if got == "fallback" || got == "" {
-		t.Fatalf("AI text = %q, want generated answer", got)
+	if got != "AI答案" {
+		t.Fatalf("AI text = %q, want AI answer", got)
 	}
 }
 
@@ -97,7 +105,6 @@ func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 	defer server.Close()
 
 	client := NewAIClient(AIConfig{
-		Mode:    "api",
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		Model:   "test-model",
@@ -113,7 +120,7 @@ func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 }
 
 func TestAIClientClassifiesConfigErrorWithoutRetry(t *testing.T) {
-	client := NewAIClient(AIConfig{Mode: "api"})
+	client := NewAIClient(AIConfig{})
 
 	_, err := client.GenerateAnswer("评价", "1", 1)
 	var aiErr *AIError
@@ -124,8 +131,6 @@ func TestAIClientClassifiesConfigErrorWithoutRetry(t *testing.T) {
 
 func TestRunContextGeneratesConfiguredRandomTextModes(t *testing.T) {
 	cfg := &execution.ExecutionConfig{
-		AIMode:              "free",
-		TextAIFlags:         []bool{true, true, false},
 		TextRandomModes:     []string{models.TextRandomMobile, models.TextRandomInteger, ""},
 		TextRandomIntRanges: [][]int{nil, []int{12, 10}, nil},
 	}

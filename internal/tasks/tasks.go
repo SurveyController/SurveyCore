@@ -14,33 +14,33 @@ import (
 
 	"github.com/SurveyController/SurveyCore/internal/config"
 	"github.com/SurveyController/SurveyCore/internal/engine"
+	"github.com/SurveyController/SurveyCore/internal/execution"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
-	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 	"github.com/SurveyController/SurveyCore/internal/providers"
 )
 
 type TaskManager struct {
-	store           *Store
-	registry        engine.ProviderRegistry
-	runtimeDefaults func(*models.RuntimeConfig)
-	mu              sync.RWMutex
-	tasks           map[string]*TaskRecord
-	runtimes        map[string]*taskRuntime
-	wg              sync.WaitGroup
+	store             *Store
+	registry          engine.ProviderRegistry
+	executionDefaults func(*execution.ExecutionConfig)
+	mu                sync.RWMutex
+	tasks             map[string]*TaskRecord
+	runtimes          map[string]*taskRuntime
+	wg                sync.WaitGroup
 }
 
 func NewTaskManager(store *Store, registry engine.ProviderRegistry) *TaskManager {
-	return NewTaskManagerWithRuntimeDefaults(store, registry, nil)
+	return NewTaskManagerWithExecutionDefaults(store, registry, nil)
 }
 
-func NewTaskManagerWithRuntimeDefaults(store *Store, registry engine.ProviderRegistry, runtimeDefaults func(*models.RuntimeConfig)) *TaskManager {
+func NewTaskManagerWithExecutionDefaults(store *Store, registry engine.ProviderRegistry, executionDefaults func(*execution.ExecutionConfig)) *TaskManager {
 	return &TaskManager{
-		store:           store,
-		registry:        registry,
-		runtimeDefaults: runtimeDefaults,
-		tasks:           make(map[string]*TaskRecord),
-		runtimes:        make(map[string]*taskRuntime),
+		store:             store,
+		registry:          registry,
+		executionDefaults: executionDefaults,
+		tasks:             make(map[string]*TaskRecord),
+		runtimes:          make(map[string]*taskRuntime),
 	}
 }
 
@@ -75,7 +75,6 @@ func (m *TaskManager) Create(ctx context.Context, cfg *models.RuntimeConfig) (*T
 		return nil, err
 	}
 	runtimeCfg := cloneRuntimeConfig(cfg)
-	m.applyRuntimeDefaults(runtimeCfg)
 	now := time.Now()
 	task := &TaskRecord{
 		ID:        id,
@@ -178,14 +177,13 @@ func (m *TaskManager) Logs(id string, afterID int64, limit int) (*TaskLogPage, e
 }
 
 func (m *TaskManager) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
-	return engine.NewEngine(m.registry, nil, nil).ParseSurvey(ctx, surveyURL)
+	return engine.NewEngine(m.registry, nil).ParseSurvey(ctx, surveyURL)
 }
 
 func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error) {
 	cfg := models.NewDefaultRuntimeConfig()
 	cfg.URL = surveyURL
 	if cfg.URL == "" {
-		m.applyRuntimeDefaults(&cfg)
 		return &cfg, nil
 	}
 	def, err := m.ParseSurvey(ctx, cfg.URL)
@@ -196,7 +194,6 @@ func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) 
 	cfg.SurveyProvider = def.Provider
 	cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
 	cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
-	m.applyRuntimeDefaults(&cfg)
 	return &cfg, nil
 }
 
@@ -253,7 +250,7 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 		return errors.New("必须提供问卷链接")
 	}
 
-	e := engine.NewEngine(m.registry, nil, nil)
+	e := engine.NewEngine(m.registry, nil)
 	m.logTask(taskID, logging.LevelInfo, "解析问卷", logging.F("url", cfg.URL))
 	def, err := e.ParseSurvey(ctx, cfg.URL)
 	if err != nil {
@@ -268,17 +265,12 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 	if err != nil {
 		return fmt.Errorf("准备执行配置失败: %w", err)
 	}
+	m.applyExecutionDefaults(execCfg)
 	state.Config = execCfg
 	m.updateTask(taskID, func(t *TaskRecord) {
 		t.Config = cloneRuntimeConfig(cfg)
 		t.State = state
 	})
-
-	var pool *proxy.Pool
-	if cfg.RandomIPEnabled {
-		pool = NewProxyPoolFromRuntimeConfig(cfg)
-		m.logTask(taskID, logging.LevelInfo, "随机 IP 已启用", logging.F("proxy_source", cfg.ProxySource))
-	}
 
 	handler := func(event engine.StatusEvent) {
 		level := logging.LevelInfo
@@ -291,7 +283,7 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 			t.State = state
 		})
 	}
-	runner := engine.NewEngine(m.registry, pool, handler)
+	runner := engine.NewEngine(m.registry, handler)
 	if err := runner.Run(ctx, execCfg, state); err != nil {
 		return err
 	}
@@ -363,9 +355,9 @@ func (m *TaskManager) saveTask(task *TaskRecord) {
 	}
 }
 
-func (m *TaskManager) applyRuntimeDefaults(cfg *models.RuntimeConfig) {
-	if m.runtimeDefaults != nil {
-		m.runtimeDefaults(cfg)
+func (m *TaskManager) applyExecutionDefaults(cfg *execution.ExecutionConfig) {
+	if m.executionDefaults != nil {
+		m.executionDefaults(cfg)
 	}
 }
 
@@ -422,35 +414,24 @@ func cloneTask(task *TaskRecord) *TaskRecord {
 	return &copy
 }
 
-// NewProxyPoolFromRuntimeConfig builds a proxy pool from user config.
-func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
-	areaCode := ""
-	if cfg.ProxyAreaCode != nil {
-		areaCode = *cfg.ProxyAreaCode
-	}
-	return proxy.NewPool(
-		cfg.ProxySource,
-		cfg.CustomProxyAPI,
-		proxy.WithOfficialAreaCode(areaCode),
-		proxy.WithOfficialCredentials(cfg.RandomIPUserID, cfg.RandomIPDeviceID),
-		proxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
-		proxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
-	)
-}
-
 func DefaultTaskManager() (*TaskManager, error) {
 	return DefaultTaskManagerWithStore("data/surveycore.db")
 }
 
 func DefaultTaskManagerWithStore(dbPath string) (*TaskManager, error) {
-	return DefaultTaskManagerWithStoreAndDefaults(dbPath, nil)
-}
-
-func DefaultTaskManagerWithStoreAndDefaults(dbPath string, runtimeDefaults func(*models.RuntimeConfig)) (*TaskManager, error) {
 	store := NewStore(dbPath)
 	if err := store.Init(); err != nil {
 		return nil, err
 	}
-	manager := NewTaskManagerWithRuntimeDefaults(store, providers.Default(), runtimeDefaults)
+	manager := NewTaskManager(store, providers.Default())
+	return manager, nil
+}
+
+func DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath string, executionDefaults func(*execution.ExecutionConfig)) (*TaskManager, error) {
+	store := NewStore(dbPath)
+	if err := store.Init(); err != nil {
+		return nil, err
+	}
+	manager := NewTaskManagerWithExecutionDefaults(store, providers.Default(), executionDefaults)
 	return manager, nil
 }

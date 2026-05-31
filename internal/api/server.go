@@ -64,7 +64,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	var cfg models.RuntimeConfig
-	if err := decodeCompatibleJSON(r, &cfg); err != nil {
+	if err := decodeStrictJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "配置 JSON 请求体无效", err)
 		return
 	}
@@ -189,10 +189,6 @@ func (s *Server) handleDecodeQR(w http.ResponseWriter, r *http.Request) {
 
 func decodeStrictJSON(r *http.Request, dst any) error {
 	return decodeJSON(r, dst, true)
-}
-
-func decodeCompatibleJSON(r *http.Request, dst any) error {
-	return decodeJSON(r, dst, false)
 }
 
 func decodeJSON(r *http.Request, dst any, strict bool) error {

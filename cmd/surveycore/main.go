@@ -23,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	manager, err := tasks.DefaultTaskManagerWithStoreAndDefaults(cfg.Storage.DBPath, cfg.ApplyRuntimeDefaults)
+	manager, err := tasks.DefaultTaskManagerWithStoreAndExecutionDefaults(cfg.Storage.DBPath, cfg.ApplyExecutionDefaults)
 	if err != nil {
 		logging.ErrorFields("初始化任务存储失败", logging.F("error", err))
 		os.Exit(1)

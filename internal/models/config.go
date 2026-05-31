@@ -19,28 +19,11 @@ type RuntimeConfig struct {
 	SubmitInterval         [2]int               `json:"submit_interval,omitempty"`
 	AnswerDuration         [2]int               `json:"answer_duration,omitempty"`
 	AnswerDatetimeWindow   [2]string            `json:"answer_datetime_window,omitempty"`
-	RandomIPEnabled        bool                 `json:"random_ip_enabled,omitempty"`
-	ProxySource            string               `json:"proxy_source,omitempty"`
-	CustomProxyAPI         string               `json:"custom_proxy_api,omitempty"`
-	ProxyAreaCode          *string              `json:"proxy_area_code,omitempty"`
-	RandomIPUserID         int                  `json:"random_ip_user_id,omitempty"`
-	RandomIPDeviceID       string               `json:"random_ip_device_id,omitempty"`
-	IPExtractEndpoint      string               `json:"ip_extract_endpoint,omitempty"`
-	RandomIPLeaseMinute    int                  `json:"random_ip_lease_minute,omitempty"`
 	RandomUAEnabled        bool                 `json:"random_ua_enabled,omitempty"`
 	RandomUAKeys           []string             `json:"random_ua_keys,omitempty"`
 	RandomUARatios         map[string]int       `json:"random_ua_ratios,omitempty"`
-	FailStopEnabled        bool                 `json:"fail_stop_enabled,omitempty"`
-	PauseOnAliyunCaptcha   bool                 `json:"pause_on_aliyun_captcha,omitempty"`
 	ReliabilityModeEnabled bool                 `json:"reliability_mode_enabled,omitempty"`
 	PsychoTargetAlpha      float64              `json:"psycho_target_alpha,omitempty"`
-	AIMode                 string               `json:"ai_mode,omitempty"`
-	AIProvider             string               `json:"ai_provider,omitempty"`
-	AIAPIKey               string               `json:"ai_api_key,omitempty"`
-	AIBaseURL              string               `json:"ai_base_url,omitempty"`
-	AIAPIProtocol          string               `json:"ai_api_protocol,omitempty"`
-	AIModel                string               `json:"ai_model,omitempty"`
-	AISystemPrompt         string               `json:"ai_system_prompt,omitempty"`
 	ReverseFillEnabled     bool                 `json:"reverse_fill_enabled,omitempty"`
 	ReverseFillSourcePath  string               `json:"reverse_fill_source_path,omitempty"`
 	ReverseFillFormat      string               `json:"reverse_fill_format,omitempty"`
@@ -59,14 +42,8 @@ func NewDefaultRuntimeConfig() RuntimeConfig {
 		Target:                 1,
 		Threads:                1,
 		AnswerDuration:         [2]int{60, 120},
-		ProxySource:            "default",
-		FailStopEnabled:        true,
-		PauseOnAliyunCaptcha:   true,
 		ReliabilityModeEnabled: true,
 		PsychoTargetAlpha:      0.85,
-		AIMode:                 "free",
-		AIProvider:             "deepseek",
-		AIAPIProtocol:          "auto",
 		ReverseFillFormat:      "auto",
 		ReverseFillStartRow:    1,
 		ReverseFillThreads:     1,
