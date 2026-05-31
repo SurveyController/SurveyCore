@@ -53,8 +53,11 @@ func NewRunContextForThread(cfg *execution.ExecutionConfig, state *runstate.Exec
 			Provider:     cfg.AIProvider,
 			APIKey:       cfg.AIAPIKey,
 			BaseURL:      cfg.AIBaseURL,
+			Protocol:     cfg.AIAPIProtocol,
 			Model:        cfg.AIModel,
 			SystemPrompt: cfg.AISystemPrompt,
+			FreeUserID:   cfg.RandomIPUserID,
+			FreeDeviceID: cfg.RandomIPDeviceID,
 		})
 	}
 	return rt

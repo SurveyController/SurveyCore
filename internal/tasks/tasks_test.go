@@ -172,3 +172,25 @@ func TestCloneTaskSnapshotsExecutionState(t *testing.T) {
 		t.Fatalf("cloned status = %q, want snapshot value", got)
 	}
 }
+
+func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
+	state := runstate.NewExecutionState()
+	state.IncrementSuccess()
+	state.MarkTerminalStop("quota", "device_quota_exhausted", "设备额度不足")
+
+	task := &TaskRecord{
+		ID:     "task-1",
+		Status: TaskFailed,
+		Config: &models.RuntimeConfig{Target: 4},
+		State:  state,
+		Error:  "执行失败",
+	}
+	cloned := cloneTask(task)
+
+	if cloned.Progress == nil || cloned.Progress.Target != 4 || cloned.Progress.Success != 1 || cloned.Progress.Percent != 0.25 {
+		t.Fatalf("progress = %#v, want stable summary", cloned.Progress)
+	}
+	if cloned.ErrorCode != "execution_error" || cloned.FailureReason != "device_quota_exhausted" {
+		t.Fatalf("error fields = %q/%q, want standardized execution failure", cloned.ErrorCode, cloned.FailureReason)
+	}
+}

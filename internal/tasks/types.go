@@ -21,15 +21,27 @@ const (
 
 // TaskRecord is the persisted task state.
 type TaskRecord struct {
-	ID          string                   `json:"id"`
-	Status      string                   `json:"status"`
-	Config      *models.RuntimeConfig    `json:"config"`
-	State       *runstate.ExecutionState `json:"state,omitempty"`
-	CreatedAt   time.Time                `json:"created_at"`
-	StartedAt   *time.Time               `json:"started_at,omitempty"`
-	FinishedAt  *time.Time               `json:"finished_at,omitempty"`
-	Error       string                   `json:"error,omitempty"`
-	StopMessage string                   `json:"stop_message,omitempty"`
+	ID            string                   `json:"id"`
+	Status        string                   `json:"status"`
+	Config        *models.RuntimeConfig    `json:"config"`
+	State         *runstate.ExecutionState `json:"state,omitempty"`
+	Progress      *TaskProgress            `json:"progress,omitempty"`
+	CreatedAt     time.Time                `json:"created_at"`
+	StartedAt     *time.Time               `json:"started_at,omitempty"`
+	FinishedAt    *time.Time               `json:"finished_at,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	ErrorCode     string                   `json:"error_code,omitempty"`
+	FailureReason string                   `json:"failure_reason,omitempty"`
+	StopMessage   string                   `json:"stop_message,omitempty"`
+}
+
+// TaskProgress is a stable summary of task progress for API consumers.
+type TaskProgress struct {
+	Current int     `json:"current"`
+	Target  int     `json:"target"`
+	Success int     `json:"success"`
+	Fail    int     `json:"fail"`
+	Percent float64 `json:"percent"`
 }
 
 // TaskLog is one persisted task log entry.

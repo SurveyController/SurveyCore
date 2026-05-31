@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/SurveyController/SurveyCore/internal/models"
+	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 	"github.com/SurveyController/SurveyCore/internal/tasks"
 )
 
@@ -131,6 +132,117 @@ func TestDecodeQRMissingImageReturns400(t *testing.T) {
 	}
 }
 
+func TestAITestEndpointReturnsPreview(t *testing.T) {
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"连接成功"}`))
+	}))
+	defer aiServer.Close()
+
+	server := newTestServer(t)
+	reqBody := `{
+		"ai_mode":"provider",
+		"ai_provider":"custom",
+		"ai_api_key":"test-key",
+		"ai_base_url":"` + aiServer.URL + `/v1",
+		"ai_api_protocol":"responses",
+		"ai_model":"test-model"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/test", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "连接成功") {
+		t.Fatalf("response body = %s, want AI preview", rec.Body.String())
+	}
+}
+
+func TestAITestEndpointSupportsFreeAIService(t *testing.T) {
+	var gotDeviceID string
+	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotDeviceID = r.Header.Get("X-Device-ID")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"answers":["免费连接成功"]}`))
+	}))
+	defer aiServer.Close()
+
+	server := newTestServer(t)
+	reqBody := `{
+		"ai_mode":"free",
+		"ai_free_endpoint":"` + aiServer.URL + `",
+		"random_ip_user_id":88,
+		"random_ip_device_id":"device-88"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/test", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if gotDeviceID != "device-88" {
+		t.Fatalf("X-Device-ID = %q, want device-88", gotDeviceID)
+	}
+	if !strings.Contains(rec.Body.String(), "免费连接成功") {
+		t.Fatalf("response body = %s, want free AI preview", rec.Body.String())
+	}
+}
+
+func TestRandomIPTrialEndpointReturnsSession(t *testing.T) {
+	randomIPServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Device-ID") == "" {
+			t.Fatal("missing X-Device-ID")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"user_id":99,"remaining_quota":8,"total_quota":10,"used_quota":2}`))
+	}))
+	defer randomIPServer.Close()
+
+	server := newTestServer(t)
+	server.randomIP = proxy.NewRandomIPService(filepath.Join(t.TempDir(), "random-ip.json"), proxy.RandomIPEndpoints{TrialEndpoint: randomIPServer.URL})
+	req := httptest.NewRequest(http.MethodPost, "/api/random-ip/trial", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var snapshot proxy.RandomIPSnapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Authenticated || snapshot.UserID != 99 || snapshot.RemainingQuota != 8 {
+		t.Fatalf("snapshot = %#v, want authenticated random IP session", snapshot)
+	}
+}
+
+func TestRandomIPSyncRequiresSession(t *testing.T) {
+	server := newTestServer(t)
+	server.randomIP = proxy.NewRandomIPService(filepath.Join(t.TempDir(), "random-ip.json"), proxy.RandomIPEndpoints{})
+	req := httptest.NewRequest(http.MethodPost, "/api/random-ip/quota/sync", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+	apiErr := decodeAPIError(t, rec)
+	if apiErr.Code != "random_ip_not_authenticated" {
+		t.Fatalf("code = %q, want random_ip_not_authenticated", apiErr.Code)
+	}
+}
+
 func TestTaskLogsReturnsCursorPage(t *testing.T) {
 	server := newTestServer(t)
 	task, err := server.manager.Create(t.Context(), nilRuntimeConfig())
@@ -167,6 +279,160 @@ func TestTaskLogsRejectsInvalidCursor(t *testing.T) {
 	apiErr := decodeAPIError(t, rec)
 	if apiErr.Code != "invalid_query" {
 		t.Fatalf("code = %q, want invalid_query", apiErr.Code)
+	}
+}
+
+func TestImportConfigAcceptsPythonCompatibleJSON(t *testing.T) {
+	server := newTestServer(t)
+	reqBody := `{
+		"config":{
+			"url":"https://www.wjx.cn/vm/test.aspx",
+			"target":2,
+			"_ai_config_present":true,
+			"python_only_future_field":"ignored"
+		}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/configs/import", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var cfg models.RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Target != 2 || cfg.Threads != 1 || cfg.AIMode != "free" {
+		t.Fatalf("config = %#v, want imported target with defaults", cfg)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["_ai_config_present"] != true || raw["python_only_future_field"] != "ignored" {
+		t.Fatalf("raw config = %#v, want python-only fields preserved", raw)
+	}
+}
+
+func TestExportConfigReturnsDownload(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/configs/export", strings.NewReader(`{"url":"https://www.wjx.cn/vm/test.aspx","target":3,"config_schema_version":6}`))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "surveycore-config.json") {
+		t.Fatalf("Content-Disposition = %q, want config filename", got)
+	}
+	var cfg models.RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Target != 3 || cfg.Threads != 1 {
+		t.Fatalf("config = %#v, want exported config with defaults", cfg)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["config_schema_version"] != float64(6) {
+		t.Fatalf("raw config = %#v, want preserved schema version", raw)
+	}
+}
+
+func TestExportTaskConfigReturnsPersistedConfig(t *testing.T) {
+	server := newTestServer(t)
+	importedCfg, err := models.DeserializeRuntimeConfig([]byte(`{
+		"url":"https://www.wjx.cn/vm/test.aspx",
+		"survey_title":"问卷",
+		"target":1,
+		"threads":1,
+		"python_only_future_field":"task-keep"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := server.manager.Create(t.Context(), &models.RuntimeConfig{
+		URL:         importedCfg.URL,
+		SurveyTitle: importedCfg.SurveyTitle,
+		Target:      importedCfg.Target,
+		Threads:     importedCfg.Threads,
+		ExtraFields: importedCfg.ExtraFields,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/config", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var exportedCfg models.RuntimeConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &exportedCfg); err != nil {
+		t.Fatal(err)
+	}
+	if exportedCfg.SurveyTitle != "问卷" || exportedCfg.Target != 1 {
+		t.Fatalf("config = %#v, want task config", exportedCfg)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["python_only_future_field"] != "task-keep" {
+		t.Fatalf("raw task config = %#v, want persisted extra field", raw)
+	}
+}
+
+func TestExportTaskReportReturnsProgressAndLogs(t *testing.T) {
+	server := newTestServer(t)
+	task, err := server.manager.Create(t.Context(), nilRuntimeConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/report", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "report.json") {
+		t.Fatalf("Content-Disposition = %q, want report filename", got)
+	}
+	var report taskReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.TaskID != task.ID || report.Progress == nil || report.Progress.Target != 1 || len(report.Logs) == 0 {
+		t.Fatalf("report = %#v, want task progress and logs", report)
+	}
+}
+
+func TestExportTaskReportCSV(t *testing.T) {
+	server := newTestServer(t)
+	task, err := server.manager.Create(t.Context(), nilRuntimeConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/report?format=csv", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "task_id,status,log_id") {
+		t.Fatalf("csv = %s, want header", rec.Body.String())
 	}
 }
 

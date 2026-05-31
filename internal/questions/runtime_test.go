@@ -1,6 +1,7 @@
 package questions
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -83,6 +84,77 @@ func TestRunContextGeneratesFreeAIText(t *testing.T) {
 	}
 }
 
+func TestAIClientCallsFreeAIWithRandomIPIdentity(t *testing.T) {
+	var gotDeviceID string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotDeviceID = r.Header.Get("X-Device-ID")
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"answers":["连接成功"]}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Mode:         "free",
+		SystemPrompt: "系统提示",
+		FreeEndpoint: server.URL,
+		FreeUserID:   88,
+		FreeDeviceID: "device-88",
+		StrictFree:   true,
+	})
+
+	got, err := client.GenerateAnswer("评价", "fill_blank", 1)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "连接成功" {
+		t.Fatalf("answer = %q, want free AI answer", got)
+	}
+	if gotDeviceID != "device-88" {
+		t.Fatalf("X-Device-ID = %q, want device-88", gotDeviceID)
+	}
+	if gotBody["user_id"] != float64(88) || gotBody["question_type"] != "fill_blank" || gotBody["question_content"] != "评价" || gotBody["system_prompt"] != "系统提示" {
+		t.Fatalf("request body = %#v, want Python-compatible free AI payload", gotBody)
+	}
+	if _, ok := gotBody["blank_count"]; ok {
+		t.Fatalf("single blank request should omit blank_count: %#v", gotBody)
+	}
+}
+
+func TestAIClientCallsFreeAIForMultiBlank(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"answers":["服务好","速度快"]}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Mode:         "free",
+		FreeEndpoint: server.URL,
+		FreeUserID:   88,
+		FreeDeviceID: "device-88",
+		StrictFree:   true,
+	})
+
+	got, err := client.GenerateAnswer("请评价", "", 2)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "服务好|速度快" {
+		t.Fatalf("answer = %q, want pipe-delimited multi blank answer", got)
+	}
+	if gotBody["question_type"] != "multi_fill_blank" || gotBody["blank_count"] != float64(2) {
+		t.Fatalf("request body = %#v, want multi_fill_blank with blank_count", gotBody)
+	}
+}
+
 func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +181,64 @@ func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 	}
 	if got != "补偿答案" || attempts != 2 {
 		t.Fatalf("answer=%q attempts=%d, want answer and one retry", got, attempts)
+	}
+}
+
+func TestAIClientCallsResponsesAPI(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"连接成功"}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Mode:     "provider",
+		Provider: "custom",
+		APIKey:   "test-key",
+		BaseURL:  server.URL + "/v1",
+		Protocol: "responses",
+		Model:    "test-model",
+	})
+
+	got, err := client.GenerateAnswer("测试", "fill_blank", 1)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "连接成功" || gotPath != "/v1/responses" {
+		t.Fatalf("answer=%q path=%q, want responses answer and endpoint", got, gotPath)
+	}
+}
+
+func TestAIClientAutoFallsBackToResponsesOnEndpointMismatch(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output":[{"content":[{"type":"output_text","text":"fallback ok"}]}]}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Mode:     "provider",
+		Provider: "custom",
+		APIKey:   "test-key",
+		BaseURL:  server.URL + "/v1",
+		Protocol: "auto",
+		Model:    "test-model",
+	})
+
+	got, err := client.GenerateAnswer("测试", "fill_blank", 1)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "fallback ok" || strings.Join(paths, ",") != "/v1/chat/completions,/v1/responses" {
+		t.Fatalf("answer=%q paths=%v, want chat then responses fallback", got, paths)
 	}
 }
 

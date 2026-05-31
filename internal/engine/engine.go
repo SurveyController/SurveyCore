@@ -18,13 +18,13 @@ import (
 
 // StatusEvent represents a status update from the engine.
 type StatusEvent struct {
-	ThreadName string
-	StatusText string
-	Success    bool
-	Fail       bool
-	Current    int
-	Total      int
-	Timestamp  time.Time
+	ThreadName string    `json:"thread_name"`
+	StatusText string    `json:"status_text"`
+	Success    bool      `json:"success"`
+	Fail       bool      `json:"fail"`
+	Current    int       `json:"current"`
+	Total      int       `json:"total"`
+	Timestamp  time.Time `json:"timestamp"`
 }
 
 // StatusHandler is called when a status event occurs.

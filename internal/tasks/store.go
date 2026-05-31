@@ -128,6 +128,7 @@ func (s *Store) SaveTask(task *TaskRecord) error {
 	if task == nil || task.ID == "" {
 		return errors.New("任务为空")
 	}
+	syncTaskDerivedFields(task)
 	data, err := json.Marshal(task)
 	if err != nil {
 		return err

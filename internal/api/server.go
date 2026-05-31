@@ -14,6 +14,7 @@ import (
 	surveyio "github.com/SurveyController/SurveyCore/internal/io"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
+	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 	"github.com/SurveyController/SurveyCore/internal/tasks"
 )
 
@@ -28,14 +29,16 @@ type TaskService interface {
 }
 
 type Server struct {
-	manager TaskService
-	version string
+	manager  TaskService
+	version  string
+	randomIP *proxy.RandomIPService
 }
 
 func NewServer(manager TaskService, version string) *Server {
 	return &Server{
-		manager: manager,
-		version: version,
+		manager:  manager,
+		version:  version,
+		randomIP: proxy.DefaultRandomIPService(),
 	}
 }
 
@@ -48,8 +51,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleGetTask)
 	mux.HandleFunc("POST /api/tasks/{id}/stop", s.handleStopTask)
 	mux.HandleFunc("GET /api/tasks/{id}/logs", s.handleTaskLogs)
+	mux.HandleFunc("GET /api/tasks/{id}/config", s.handleExportTaskConfig)
+	mux.HandleFunc("GET /api/tasks/{id}/report", s.handleExportTaskReport)
 	mux.HandleFunc("POST /api/surveys/parse", s.handleParseSurvey)
 	mux.HandleFunc("POST /api/configs", s.handleCreateConfig)
+	mux.HandleFunc("POST /api/configs/import", s.handleImportConfig)
+	mux.HandleFunc("POST /api/configs/export", s.handleExportConfig)
+	mux.HandleFunc("POST /api/ai/test", s.handleTestAI)
+	mux.HandleFunc("GET /api/random-ip/session", s.handleGetRandomIPSession)
+	mux.HandleFunc("POST /api/random-ip/trial", s.handleActivateRandomIPTrial)
+	mux.HandleFunc("POST /api/random-ip/quota/sync", s.handleSyncRandomIPQuota)
+	mux.HandleFunc("POST /api/random-ip/redeem", s.handleRedeemRandomIPCard)
+	mux.HandleFunc("POST /api/random-ip/bonus", s.handleClaimRandomIPBonus)
 	mux.HandleFunc("POST /api/qrcode/decode", s.handleDecodeQR)
 	return loggingMiddleware(mux)
 }

@@ -46,6 +46,8 @@ func (m *TaskManager) Load() []error {
 			task.Status = TaskInterrupted
 			task.FinishedAt = &now
 			task.Error = "服务重启，任务已中断"
+			task.ErrorCode = "task_interrupted"
+			task.FailureReason = task.Error
 			errs = appendSaveErr(errs, m.store.SaveTask(task))
 		}
 		m.tasks[task.ID] = task
@@ -132,6 +134,8 @@ func (m *TaskManager) Stop(id string) (*TaskRecord, error) {
 	}
 	task.Status = TaskStopped
 	task.StopMessage = "用户请求停止"
+	task.ErrorCode = "task_stopped"
+	task.FailureReason = task.StopMessage
 	if task.State != nil {
 		task.State.SignalStop()
 	}
@@ -220,11 +224,17 @@ func (m *TaskManager) run(ctx context.Context, id string) {
 		if current.StopMessage == "" {
 			current.StopMessage = "任务已停止"
 		}
+		current.ErrorCode = "task_stopped"
+		current.FailureReason = firstNonEmpty(terminalMessage(state), current.StopMessage)
 	} else if err != nil {
 		current.Status = TaskFailed
 		current.Error = err.Error()
+		current.ErrorCode = "execution_error"
+		current.FailureReason = firstNonEmpty(terminalReason(state), err.Error())
 	} else {
 		current.Status = TaskSucceeded
+		current.ErrorCode = ""
+		current.FailureReason = ""
 	}
 	snapshot := cloneTask(current)
 	m.mu.Unlock()
@@ -348,6 +358,7 @@ func (m *TaskManager) appendLog(id string, entry TaskLog) {
 }
 
 func (m *TaskManager) saveTask(task *TaskRecord) {
+	syncTaskDerivedFields(task)
 	if err := m.store.SaveTask(task); err != nil {
 		logging.ErrorFields("保存任务状态失败", logging.F("task_id", task.ID), logging.F("error", err))
 	}
@@ -403,7 +414,99 @@ func cloneTask(task *TaskRecord) *TaskRecord {
 	copy := *task
 	copy.Config = cloneRuntimeConfig(task.Config)
 	copy.State = task.State.Snapshot()
+	syncTaskDerivedFields(&copy)
 	return &copy
+}
+
+func syncTaskDerivedFields(task *TaskRecord) {
+	if task == nil {
+		return
+	}
+	task.Progress = buildTaskProgress(task)
+	if task.FailureReason == "" {
+		task.FailureReason = deriveFailureReason(task)
+	}
+	if task.ErrorCode == "" {
+		task.ErrorCode = deriveErrorCode(task)
+	}
+}
+
+func buildTaskProgress(task *TaskRecord) *TaskProgress {
+	target := 0
+	if task.Config != nil {
+		target = task.Config.Target
+	}
+	success := 0
+	fail := 0
+	if task.State != nil {
+		success = task.State.GetCurNum()
+		fail = task.State.GetCurFail()
+	}
+	current := success
+	percent := 0.0
+	if target > 0 {
+		percent = float64(current) / float64(target)
+		if percent > 1 {
+			percent = 1
+		}
+	}
+	return &TaskProgress{
+		Current: current,
+		Target:  target,
+		Success: success,
+		Fail:    fail,
+		Percent: percent,
+	}
+}
+
+func deriveErrorCode(task *TaskRecord) string {
+	switch task.Status {
+	case TaskFailed:
+		return "execution_error"
+	case TaskStopped:
+		return "task_stopped"
+	case TaskInterrupted:
+		return "task_interrupted"
+	default:
+		return ""
+	}
+}
+
+func deriveFailureReason(task *TaskRecord) string {
+	if task.State != nil {
+		if reason := terminalReason(task.State); reason != "" {
+			return reason
+		}
+		if message := terminalMessage(task.State); message != "" {
+			return message
+		}
+	}
+	return firstNonEmpty(task.Error, task.StopMessage)
+}
+
+func terminalReason(state *runstate.ExecutionState) string {
+	if state == nil {
+		return ""
+	}
+	_, reason, _ := state.GetTerminalStopSnapshot()
+	return reason
+}
+
+func terminalMessage(state *runstate.ExecutionState) string {
+	if state == nil {
+		return ""
+	}
+	_, _, message := state.GetTerminalStopSnapshot()
+	return message
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // NewProxyPoolFromRuntimeConfig builds a proxy pool from user config.
@@ -412,11 +515,23 @@ func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
 	if cfg.ProxyAreaCode != nil {
 		areaCode = *cfg.ProxyAreaCode
 	}
+	userID := cfg.RandomIPUserID
+	deviceID := cfg.RandomIPDeviceID
+	if userID <= 0 || deviceID == "" {
+		if snapshot, err := proxy.DefaultRandomIPService().Snapshot(); err == nil && snapshot.Authenticated {
+			if userID <= 0 {
+				userID = snapshot.UserID
+			}
+			if deviceID == "" {
+				deviceID = snapshot.DeviceID
+			}
+		}
+	}
 	return proxy.NewPool(
 		cfg.ProxySource,
 		cfg.CustomProxyAPI,
 		proxy.WithOfficialAreaCode(areaCode),
-		proxy.WithOfficialCredentials(cfg.RandomIPUserID, cfg.RandomIPDeviceID),
+		proxy.WithOfficialCredentials(userID, deviceID),
 		proxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
 		proxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
 	)
