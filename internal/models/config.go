@@ -2,14 +2,19 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SurveyController/SurveyCore/internal/domain"
 )
 
 // Default UA keys for random user agent
 var DefaultRandomUAKeys = []string{"wechat", "mobile", "pc"}
+
+const maxAnswerDurationSeconds = 30 * 60
 
 // RuntimeConfig is the top-level user-facing configuration object.
 type RuntimeConfig struct {
@@ -94,17 +99,19 @@ func DeserializeRuntimeConfig(data []byte) (*RuntimeConfig, error) {
 
 // UnmarshalJSON keeps Python-only or future config fields for lossless round trips.
 func (cfg *RuntimeConfig) UnmarshalJSON(data []byte) error {
-	type runtimeConfigAlias RuntimeConfig
-	var alias runtimeConfigAlias
-	if err := json.Unmarshal(data, &alias); err != nil {
-		return err
-	}
-	*cfg = RuntimeConfig(alias)
-
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	normalized := normalizeRuntimeConfigJSON(raw)
+
+	type runtimeConfigAlias RuntimeConfig
+	var alias runtimeConfigAlias
+	if err := json.Unmarshal(configMustJSON(normalized), &alias); err != nil {
+		return err
+	}
+	*cfg = RuntimeConfig(alias)
+
 	for key := range runtimeConfigJSONKeys() {
 		delete(raw, key)
 	}
@@ -138,6 +145,242 @@ func (cfg RuntimeConfig) MarshalJSON() ([]byte, error) {
 		raw[key] = value
 	}
 	return json.Marshal(raw)
+}
+
+func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.RawMessage {
+	normalized := make(map[string]json.RawMessage, len(raw))
+	for key, value := range raw {
+		normalized[key] = value
+	}
+	for _, key := range []string{"target", "threads", "random_ip_user_id", "random_ip_lease_minute", "reverse_fill_start_row", "reverse_fill_threads"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawConfigInt(value, 0)
+		}
+	}
+	for _, key := range []string{"random_ip_enabled", "random_ua_enabled", "fail_stop_enabled", "pause_on_aliyun_captcha", "reliability_mode_enabled", "reverse_fill_enabled"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawConfigBool(value, false)
+		}
+	}
+	if value, ok := raw["psycho_target_alpha"]; ok {
+		normalized["psycho_target_alpha"] = rawConfigFloat(value, 0)
+	}
+	for _, key := range []string{"url", "survey_title", "survey_provider", "proxy_source", "custom_proxy_api", "random_ip_device_id", "ip_extract_endpoint", "ai_mode", "ai_provider", "ai_api_key", "ai_base_url", "ai_api_protocol", "ai_model", "ai_system_prompt", "reverse_fill_source_path", "reverse_fill_format"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawString(value)
+		}
+	}
+	if value, ok := raw["proxy_area_code"]; ok {
+		normalized["proxy_area_code"] = rawNullableString(value)
+	}
+	if value, ok := raw["submit_interval"]; ok {
+		normalized["submit_interval"] = rawIntPair(value, [2]int{})
+	}
+	if value, ok := raw["answer_duration"]; ok {
+		normalized["answer_duration"] = rawAnswerDuration(value)
+	}
+	if value, ok := raw["answer_datetime_window"]; ok {
+		normalized["answer_datetime_window"] = rawAnswerDatetimeWindow(value)
+	}
+	if value, ok := raw["random_ua_ratios"]; ok {
+		normalized["random_ua_ratios"] = rawIntMap(value)
+	}
+	return normalized
+}
+
+func rawConfigInt(raw json.RawMessage, fallback int) json.RawMessage {
+	return configMustJSON(configToInt(configAnyFromRaw(raw), fallback))
+}
+
+func rawConfigFloat(raw json.RawMessage, fallback float64) json.RawMessage {
+	return configMustJSON(configToFloat(configAnyFromRaw(raw), fallback))
+}
+
+func rawConfigBool(raw json.RawMessage, fallback bool) json.RawMessage {
+	return configMustJSON(configToBool(configAnyFromRaw(raw), fallback))
+}
+
+func rawString(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	if value == nil {
+		return configMustJSON("")
+	}
+	return configMustJSON(strings.TrimSpace(fmt.Sprint(value)))
+}
+
+func rawNullableString(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	if value == nil {
+		return configMustJSON(nil)
+	}
+	return rawString(raw)
+}
+
+func rawIntPair(raw json.RawMessage, fallback [2]int) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok || len(items) < 2 {
+		return configMustJSON(fallback)
+	}
+	first := configToInt(items[0], fallback[0])
+	second := configToInt(items[1], fallback[1])
+	return configMustJSON([2]int{first, second})
+}
+
+func rawAnswerDuration(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	defaultRange := [2]int{60, 120}
+	if value == nil {
+		return configMustJSON(defaultRange)
+	}
+	if items, ok := value.([]any); ok {
+		if len(items) >= 2 {
+			low := configClampInt(configToInt(items[0], 0), 0, maxAnswerDurationSeconds)
+			high := configClampInt(configToInt(items[1], low), low, maxAnswerDurationSeconds)
+			if low == 0 && high == 0 {
+				return configMustJSON(defaultRange)
+			}
+			if low == high {
+				return configMustJSON(configLegacyAnswerDurationRange(low))
+			}
+			return configMustJSON([2]int{low, high})
+		}
+		if len(items) == 1 {
+			return configMustJSON(configLegacyAnswerDurationRange(configToInt(items[0], 0)))
+		}
+		return configMustJSON(defaultRange)
+	}
+	return configMustJSON(configLegacyAnswerDurationRange(configToInt(value, 0)))
+}
+
+func rawAnswerDatetimeWindow(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok {
+		return configMustJSON([2]string{})
+	}
+	var result [2]string
+	if len(items) >= 1 {
+		result[0] = configNormalizeAnswerDatetimeString(items[0])
+	}
+	if len(items) >= 2 {
+		result[1] = configNormalizeAnswerDatetimeString(items[1])
+	}
+	return configMustJSON(result)
+}
+
+func rawIntMap(raw json.RawMessage) json.RawMessage {
+	var source map[string]any
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return configMustJSON(map[string]int{})
+	}
+	result := make(map[string]int, len(source))
+	for key, value := range source {
+		result[key] = configToInt(value, 0)
+	}
+	return configMustJSON(result)
+}
+
+func configAnyFromRaw(raw json.RawMessage) any {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil
+	}
+	return value
+}
+
+func configToInt(value any, fallback int) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed
+		}
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return int(parsed)
+		}
+	}
+	return fallback
+}
+
+func configToFloat(value any, fallback float64) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return parsed
+		}
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func configToBool(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case float64:
+		return typed != 0
+	case string:
+		text := strings.ToLower(strings.TrimSpace(typed))
+		switch text {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off", "":
+			return false
+		}
+	}
+	return fallback
+}
+
+func configLegacyAnswerDurationRange(value int) [2]int {
+	normalized := configClampInt(value, 0, maxAnswerDurationSeconds)
+	if normalized <= 0 {
+		return [2]int{60, 120}
+	}
+	low := int(float64(normalized)*0.9 + 0.5)
+	high := int(float64(normalized)*1.1 + 0.5)
+	return [2]int{configClampInt(low, 0, maxAnswerDurationSeconds), configClampInt(high, low, maxAnswerDurationSeconds)}
+}
+
+func configClampInt(value, low, high int) int {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
+}
+
+func configNormalizeAnswerDatetimeString(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" {
+		return ""
+	}
+	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", text, time.Local)
+	if err != nil {
+		return ""
+	}
+	return parsed.Format("2006-01-02 15:04:05")
+}
+
+func configMustJSON(value any) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return data
 }
 
 func runtimeConfigJSONKeys() map[string]struct{} {
