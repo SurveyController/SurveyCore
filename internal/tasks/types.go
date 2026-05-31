@@ -32,13 +32,20 @@ type TaskRecord struct {
 	StopMessage string                   `json:"stop_message,omitempty"`
 }
 
-// TaskLog is one pure JSONL task log entry.
+// TaskLog is one persisted task log entry.
 type TaskLog struct {
+	ID        int64               `json:"id"`
 	Timestamp time.Time           `json:"timestamp"`
 	Level     string              `json:"level"`
 	Message   string              `json:"message"`
 	Fields    map[string]any      `json:"fields,omitempty"`
 	Event     *engine.StatusEvent `json:"event,omitempty"`
+}
+
+type TaskLogPage struct {
+	Logs       []TaskLog `json:"logs"`
+	NextCursor int64     `json:"next_cursor"`
+	HasMore    bool      `json:"has_more"`
 }
 
 type taskRuntime struct {

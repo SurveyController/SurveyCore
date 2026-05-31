@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
 
@@ -54,10 +55,11 @@ func TestNewProxyPoolFromRuntimeConfigUsesOfficialRandomIPConfig(t *testing.T) {
 
 func TestStorePersistsTaskAndLogs(t *testing.T) {
 	dir := t.TempDir()
-	store := NewStore(dir)
+	store := NewStore(filepath.Join(dir, "surveycore.db"))
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	task := &TaskRecord{ID: "task-1", Status: TaskRunning, Config: &models.RuntimeConfig{URL: "https://example.com"}}
 	if err := store.SaveTask(task); err != nil {
 		t.Fatal(err)
@@ -65,24 +67,36 @@ func TestStorePersistsTaskAndLogs(t *testing.T) {
 	if err := store.AppendLog("task-1", TaskLog{Level: "INFO", Message: "hello"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "task-1.json")); err != nil {
-		t.Fatalf("task json missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "surveycore.db")); err != nil {
+		t.Fatalf("sqlite database missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "task-1.logs.jsonl")); err != nil {
-		t.Fatalf("task log missing: %v", err)
+	tasks, errs := store.LoadTasks()
+	if len(errs) != 0 || len(tasks) != 1 || tasks[0].ID != "task-1" {
+		t.Fatalf("tasks = %#v errs = %#v, want persisted task", tasks, errs)
+	}
+	page, err := store.LoadLogs("task-1", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Logs) != 1 || page.Logs[0].Message != "hello" || page.Logs[0].ID == 0 {
+		t.Fatalf("logs = %#v, want persisted log with cursor", page.Logs)
 	}
 }
 
-func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadJSON(t *testing.T) {
+func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadRecord(t *testing.T) {
 	dir := t.TempDir()
-	store := NewStore(dir)
+	store := NewStore(filepath.Join(dir, "surveycore.db"))
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	if err := store.SaveTask(&TaskRecord{ID: "running", Status: TaskRunning, Config: &models.RuntimeConfig{URL: "x"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{bad"), 0644); err != nil {
+	if _, err := store.database().Exec(`
+		INSERT INTO tasks(id, status, record_json, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, "bad", TaskRunning, "{bad", time.Now().Format(time.RFC3339Nano), time.Now().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,6 +111,37 @@ func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadJSON(t *testing.T) {
 	}
 	if task.Status != TaskInterrupted {
 		t.Fatalf("status = %q, want interrupted", task.Status)
+	}
+}
+
+func TestStoreLoadLogsUsesCursorPagination(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "surveycore.db"))
+	if err := store.Init(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.SaveTask(&TaskRecord{ID: "task-1", Status: TaskRunning}); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"one", "two", "three"} {
+		if err := store.AppendLog("task-1", TaskLog{Timestamp: time.Now(), Level: "INFO", Message: message}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := store.LoadLogs("task-1", 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Logs) != 2 || !first.HasMore || first.NextCursor != first.Logs[1].ID {
+		t.Fatalf("first page = %#v, want two logs and next page", first)
+	}
+	second, err := store.LoadLogs("task-1", first.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Logs) != 1 || second.HasMore || second.Logs[0].Message != "three" {
+		t.Fatalf("second page = %#v, want final log", second)
 	}
 }
 

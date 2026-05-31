@@ -25,6 +25,9 @@ go.work.sum
 desktop.ini
 AGENTS.md
 
+# Local database
+/data/
+
 # OS
 .DS_Store
 Thumbs.db

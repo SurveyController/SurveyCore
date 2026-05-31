@@ -61,12 +61,15 @@ func main() {
 		}
 	}
 
-	manager.StopAll()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
 		logging.ErrorFields("API 服务关闭失败", logging.F("error", err))
 		os.Exit(1)
+	}
+	manager.StopAll()
+	if err := manager.Close(); err != nil {
+		logging.ErrorFields("关闭任务存储失败", logging.F("error", err))
 	}
 	logging.Info("API 服务已关闭")
 }

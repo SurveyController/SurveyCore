@@ -78,7 +78,7 @@ func (m *TaskManager) Create(ctx context.Context, cfg *models.RuntimeConfig) (*T
 	if err := m.store.SaveTask(task); err != nil {
 		return nil, err
 	}
-	_ = m.store.AppendLog(id, TaskLog{Timestamp: now, Level: "INFO", Message: "任务已创建", Fields: map[string]any{"task_id": id}})
+	m.appendLog(id, TaskLog{Timestamp: now, Level: "INFO", Message: "任务已创建", Fields: map[string]any{"task_id": id}})
 
 	runCtx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
@@ -140,8 +140,8 @@ func (m *TaskManager) Stop(id string) (*TaskRecord, error) {
 	m.mu.Unlock()
 
 	m.consoleLog(logging.LevelWarn, "任务停止请求", id, logging.F("status", TaskStopped))
-	_ = m.store.AppendLog(id, TaskLog{Timestamp: time.Now(), Level: "WARN", Message: "任务停止请求", Fields: map[string]any{"task_id": id}})
-	_ = m.store.SaveTask(snapshot)
+	m.appendLog(id, TaskLog{Timestamp: time.Now(), Level: "WARN", Message: "任务停止请求", Fields: map[string]any{"task_id": id}})
+	m.saveTask(snapshot)
 	return snapshot, nil
 }
 
@@ -158,11 +158,15 @@ func (m *TaskManager) StopAll() {
 	m.wg.Wait()
 }
 
-func (m *TaskManager) Logs(id string) ([]TaskLog, error) {
+func (m *TaskManager) Close() error {
+	return m.store.Close()
+}
+
+func (m *TaskManager) Logs(id string, afterID int64, limit int) (*TaskLogPage, error) {
 	if _, ok := m.Get(id); !ok {
 		return nil, errors.New("任务不存在")
 	}
-	return m.store.LoadLogs(id)
+	return m.store.LoadLogs(id, afterID, limit)
 }
 
 func (m *TaskManager) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
@@ -230,7 +234,7 @@ func (m *TaskManager) run(ctx context.Context, id string) {
 	} else {
 		m.logTask(id, logging.LevelInfo, "执行完成", logging.F("success", state.GetCurNum()), logging.F("fail", state.GetCurFail()))
 	}
-	_ = m.store.SaveTask(snapshot)
+	m.saveTask(snapshot)
 }
 
 func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, state *runstate.ExecutionState, taskID string) error {
@@ -294,7 +298,7 @@ func (m *TaskManager) updateTask(id string, mutate func(*TaskRecord)) {
 	mutate(task)
 	snapshot := cloneTask(task)
 	m.mu.Unlock()
-	_ = m.store.SaveTask(snapshot)
+	m.saveTask(snapshot)
 }
 
 func (m *TaskManager) getInternal(id string) (*TaskRecord, bool) {
@@ -313,7 +317,7 @@ func (m *TaskManager) logTask(id string, level logging.Level, message string, fi
 	for _, field := range fields {
 		entry.Fields[field.Key] = field.Value
 	}
-	_ = m.store.AppendLog(id, entry)
+	m.appendLog(id, entry)
 }
 
 func (m *TaskManager) logTaskEvent(id string, level logging.Level, message string, event engine.StatusEvent) {
@@ -334,7 +338,19 @@ func (m *TaskManager) logTaskEvent(id string, level logging.Level, message strin
 		},
 		Event: &event,
 	}
-	_ = m.store.AppendLog(id, entry)
+	m.appendLog(id, entry)
+}
+
+func (m *TaskManager) appendLog(id string, entry TaskLog) {
+	if err := m.store.AppendLog(id, entry); err != nil {
+		logging.ErrorFields("写入任务日志失败", logging.F("task_id", id), logging.F("error", err))
+	}
+}
+
+func (m *TaskManager) saveTask(task *TaskRecord) {
+	if err := m.store.SaveTask(task); err != nil {
+		logging.ErrorFields("保存任务状态失败", logging.F("task_id", task.ID), logging.F("error", err))
+	}
 }
 
 func (m *TaskManager) consoleLog(level logging.Level, message, id string, fields ...logging.Field) {
@@ -407,7 +423,7 @@ func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
 }
 
 func DefaultTaskManager() (*TaskManager, error) {
-	store := NewStore("data/tasks")
+	store := NewStore("data/surveycore.db")
 	if err := store.Init(); err != nil {
 		return nil, err
 	}

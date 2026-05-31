@@ -22,7 +22,7 @@ type TaskService interface {
 	List() []*tasks.TaskRecord
 	Get(id string) (*tasks.TaskRecord, bool)
 	Stop(id string) (*tasks.TaskRecord, error)
-	Logs(id string) ([]tasks.TaskLog, error)
+	Logs(id string, afterID int64, limit int) (*tasks.TaskLogPage, error)
 	ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error)
 	BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error)
 }
@@ -99,12 +99,22 @@ func (s *Server) handleStopTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
-	logs, err := s.manager.Logs(r.PathValue("id"))
+	afterID, err := tasks.ParseLogCursor(r.URL.Query().Get("after"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	limit, err := tasks.ParseLogLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	page, err := s.manager.Logs(r.PathValue("id"), afterID, limit)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) handleParseSurvey(w http.ResponseWriter, r *http.Request) {

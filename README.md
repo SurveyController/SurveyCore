@@ -1,4 +1,8 @@
 # SurveyCore
+
+![Go](https://img.shields.io/badge/Go-1.26.3-00ADD8?logo=go&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-3.43.1-003B57?logo=sqlite&logoColor=white)
+
 [SurveyController](https://github.com/SurveyController/SurveyController) 的核心 HTTP 提交 API 服务。
 
 负责解析问卷、创建提交任务、查询任务、停止任务、读取任务日志和解析二维码。
@@ -13,6 +17,24 @@
 - [x] 腾讯问卷
 - [x] Credamo 见数
 - [ ] ...（欢迎贡献！）
+
+## 使用方法
+
+### 环境要求
+
+- Go 1.26.3
+
+如果还没有安装 Go，可以从 [Go 官方网站](https://go.dev/dl/) 下载并安装适合您操作系统的版本。
+
+### 部署与运行
+
+```bash
+git clone https://github.com/SurveyController/SurveyCore.git
+cd SurveyCore
+go mod download
+go build -o surveycore ./cmd/surveycore
+./surveycore
+```
 
 ## 服务地址
 
@@ -36,7 +58,7 @@ SURVEY_PORT=8080
 | `GET` | `/api/version` | 读取当前服务版本号。 |
 | `GET` | `/api/tasks` | 查询任务列表。按创建时间倒序返回。 |
 | `GET` | `/api/tasks/{id}` | 查询单个任务详情。 |
-| `GET` | `/api/tasks/{id}/logs` | 读取指定任务日志。 |
+| `GET` | `/api/tasks/{id}/logs` | 分页读取指定任务日志。支持 `after` 游标和 `limit` 条数参数。 |
 | `POST` | `/api/surveys/parse` | 解析问卷链接，返回问卷标题、平台和题目结构。不会提交答案。 |
 | `POST` | `/api/configs` | 生成默认运行配置。传入问卷链接时会先解析问卷，再补全题目配置；不传链接时返回空模板。 |
 | `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。 |

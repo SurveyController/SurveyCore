@@ -2,9 +2,11 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,12 +89,48 @@ func TestDecodeQRMissingImageReturns400(t *testing.T) {
 	}
 }
 
+func TestTaskLogsReturnsCursorPage(t *testing.T) {
+	server := newTestServer(t)
+	task, err := server.manager.Create(t.Context(), nilRuntimeConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/logs?limit=1", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var page tasks.TaskLogPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Logs) != 1 || page.NextCursor == 0 {
+		t.Fatalf("page = %#v, want one log with cursor", page)
+	}
+}
+
+func TestTaskLogsRejectsInvalidCursor(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/task-1/logs?after=bad", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	store := tasks.NewStore(t.TempDir())
+	store := tasks.NewStore(filepath.Join(t.TempDir(), "surveycore.db"))
 	if err := store.Init(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	manager := tasks.NewTaskManager(store, nilRegistry{})
 	t.Cleanup(manager.StopAll)
 	return NewServer(manager, "test")
