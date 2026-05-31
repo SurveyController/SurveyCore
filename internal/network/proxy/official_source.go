@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -21,10 +19,10 @@ func fetchFromOfficial(source string, count int, opts officialOptions) ([]models
 		return nil, fmt.Errorf("官方随机 IP 提取接口未配置")
 	}
 	if opts.UserID <= 0 {
-		return nil, fmt.Errorf("官方随机 IP 用户 ID 未配置，请设置 -random-ip-user-id 或 WJX_RANDOM_IP_USER_ID")
+		return nil, fmt.Errorf("官方随机 IP 用户 ID 未配置")
 	}
 	if opts.DeviceID == "" {
-		return nil, fmt.Errorf("官方随机 IP 设备 ID 未配置，请设置 -random-ip-device-id 或 WJX_RANDOM_IP_DEVICE_ID")
+		return nil, fmt.Errorf("官方随机 IP 设备 ID 未配置")
 	}
 
 	upstream := "default"
@@ -182,12 +180,6 @@ func normalizeOfficialOptions(opts officialOptions) officialOptions {
 	if opts.Endpoint == "" {
 		opts.Endpoint = defaultOfficialEndpoint()
 	}
-	if opts.UserID <= 0 {
-		opts.UserID = officialUserIDFromEnv()
-	}
-	if opts.DeviceID == "" {
-		opts.DeviceID = firstEnv("WJX_RANDOM_IP_DEVICE_ID", "RANDOM_IP_DEVICE_ID")
-	}
 	opts.AreaCode = normalizeAreaCode(opts.AreaCode)
 	if !isAllowedMinute(opts.Minute) {
 		opts.Minute = 1
@@ -209,31 +201,7 @@ func normalizeProxyCount(count int) int {
 }
 
 func defaultOfficialEndpoint() string {
-	if value := firstEnv("IP_EXTRACT_ENDPOINT", "WJX_IP_EXTRACT_ENDPOINT"); value != "" {
-		return value
-	}
 	return "https://api-wjx.hungrym0.top/api/ip/extract"
-}
-
-func officialUserIDFromEnv() int {
-	value := firstEnv("WJX_RANDOM_IP_USER_ID", "RANDOM_IP_USER_ID")
-	if value == "" {
-		return 0
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return 0
-	}
-	return parsed
-}
-
-func firstEnv(keys ...string) string {
-	for _, key := range keys {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func isAllowedMinute(minute int) bool {

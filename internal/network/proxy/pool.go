@@ -71,9 +71,6 @@ func NewPool(source, apiURL string, opts ...Option) *Pool {
 		apiURL:   apiURL,
 		officialOptions: officialOptions{
 			Endpoint: defaultOfficialEndpoint(),
-			UserID:   officialUserIDFromEnv(),
-			DeviceID: firstEnv("WJX_RANDOM_IP_DEVICE_ID", "RANDOM_IP_DEVICE_ID"),
-			AreaCode: normalizeAreaCode(firstEnv("WJX_PROXY_AREA_CODE", "PROXY_AREA_CODE")),
 			Minute:   1,
 		},
 	}

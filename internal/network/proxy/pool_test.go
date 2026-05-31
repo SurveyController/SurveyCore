@@ -147,11 +147,6 @@ func TestFetchFromOfficialBenefitUsesIdiotUpstreamAndSinglePayload(t *testing.T)
 }
 
 func TestFetchFromOfficialRequiresCredentials(t *testing.T) {
-	t.Setenv("WJX_RANDOM_IP_USER_ID", "")
-	t.Setenv("RANDOM_IP_USER_ID", "")
-	t.Setenv("WJX_RANDOM_IP_DEVICE_ID", "")
-	t.Setenv("RANDOM_IP_DEVICE_ID", "")
-
 	_, err := fetchFromOfficial("default", 1, officialOptions{Endpoint: "http://example.invalid"})
 	if err == nil {
 		t.Fatal("expected missing credentials error")

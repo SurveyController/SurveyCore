@@ -21,20 +21,26 @@ import (
 )
 
 type TaskManager struct {
-	store    *Store
-	registry engine.ProviderRegistry
-	mu       sync.RWMutex
-	tasks    map[string]*TaskRecord
-	runtimes map[string]*taskRuntime
-	wg       sync.WaitGroup
+	store           *Store
+	registry        engine.ProviderRegistry
+	runtimeDefaults func(*models.RuntimeConfig)
+	mu              sync.RWMutex
+	tasks           map[string]*TaskRecord
+	runtimes        map[string]*taskRuntime
+	wg              sync.WaitGroup
 }
 
 func NewTaskManager(store *Store, registry engine.ProviderRegistry) *TaskManager {
+	return NewTaskManagerWithRuntimeDefaults(store, registry, nil)
+}
+
+func NewTaskManagerWithRuntimeDefaults(store *Store, registry engine.ProviderRegistry, runtimeDefaults func(*models.RuntimeConfig)) *TaskManager {
 	return &TaskManager{
-		store:    store,
-		registry: registry,
-		tasks:    make(map[string]*TaskRecord),
-		runtimes: make(map[string]*taskRuntime),
+		store:           store,
+		registry:        registry,
+		runtimeDefaults: runtimeDefaults,
+		tasks:           make(map[string]*TaskRecord),
+		runtimes:        make(map[string]*taskRuntime),
 	}
 }
 
@@ -68,11 +74,13 @@ func (m *TaskManager) Create(ctx context.Context, cfg *models.RuntimeConfig) (*T
 	if err != nil {
 		return nil, err
 	}
+	runtimeCfg := cloneRuntimeConfig(cfg)
+	m.applyRuntimeDefaults(runtimeCfg)
 	now := time.Now()
 	task := &TaskRecord{
 		ID:        id,
 		Status:    TaskPending,
-		Config:    cloneRuntimeConfig(cfg),
+		Config:    runtimeCfg,
 		CreatedAt: now,
 	}
 	if err := m.store.SaveTask(task); err != nil {
@@ -177,6 +185,7 @@ func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) 
 	cfg := models.NewDefaultRuntimeConfig()
 	cfg.URL = surveyURL
 	if cfg.URL == "" {
+		m.applyRuntimeDefaults(&cfg)
 		return &cfg, nil
 	}
 	def, err := m.ParseSurvey(ctx, cfg.URL)
@@ -187,6 +196,7 @@ func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) 
 	cfg.SurveyProvider = def.Provider
 	cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
 	cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
+	m.applyRuntimeDefaults(&cfg)
 	return &cfg, nil
 }
 
@@ -353,6 +363,12 @@ func (m *TaskManager) saveTask(task *TaskRecord) {
 	}
 }
 
+func (m *TaskManager) applyRuntimeDefaults(cfg *models.RuntimeConfig) {
+	if m.runtimeDefaults != nil {
+		m.runtimeDefaults(cfg)
+	}
+}
+
 func (m *TaskManager) consoleLog(level logging.Level, message, id string, fields ...logging.Field) {
 	allFields := append([]logging.Field{logging.F("task_id", id)}, fields...)
 	logging.Log(level, message, allFields...)
@@ -423,10 +439,18 @@ func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
 }
 
 func DefaultTaskManager() (*TaskManager, error) {
-	store := NewStore("data/surveycore.db")
+	return DefaultTaskManagerWithStore("data/surveycore.db")
+}
+
+func DefaultTaskManagerWithStore(dbPath string) (*TaskManager, error) {
+	return DefaultTaskManagerWithStoreAndDefaults(dbPath, nil)
+}
+
+func DefaultTaskManagerWithStoreAndDefaults(dbPath string, runtimeDefaults func(*models.RuntimeConfig)) (*TaskManager, error) {
+	store := NewStore(dbPath)
 	if err := store.Init(); err != nil {
 		return nil, err
 	}
-	manager := NewTaskManager(store, providers.Default())
+	manager := NewTaskManagerWithRuntimeDefaults(store, providers.Default(), runtimeDefaults)
 	return manager, nil
 }

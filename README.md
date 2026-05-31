@@ -45,14 +45,34 @@ go build -o surveycore ./cmd/surveycore
 默认监听：
 
 ```text
-localhost:19178
+127.0.0.1:19178
 ```
 
-只能用环境变量修改端口：
+服务启动配置默认读取：
 
 ```text
-SURVEY_PORT=8080
+configs/surveycore.toml
 ```
+
+示例：
+
+```toml
+[server]
+port = 19178
+
+[storage]
+db_path = "data/surveycore.db"
+
+[random_ip]
+api_url = "https://api-wjx.hungrym0.top/api/ip/extract"
+
+[ai]
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+api_key = ""
+```
+
+服务固定监听 `127.0.0.1`，配置文件只改端口。
 
 ## 接口列表
 
