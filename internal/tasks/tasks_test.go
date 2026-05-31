@@ -176,7 +176,7 @@ func TestCloneTaskSnapshotsExecutionState(t *testing.T) {
 func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
 	state := runstate.NewExecutionState()
 	state.IncrementSuccess()
-	state.MarkTerminalStop("quota", "device_quota_exhausted", "设备额度不足")
+	state.MarkTerminalStop("device_quota", "device_quota_limit", "设备额度不足")
 
 	task := &TaskRecord{
 		ID:     "task-1",
@@ -190,7 +190,55 @@ func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
 	if cloned.Progress == nil || cloned.Progress.Target != 4 || cloned.Progress.Success != 1 || cloned.Progress.Percent != 0.25 {
 		t.Fatalf("progress = %#v, want stable summary", cloned.Progress)
 	}
-	if cloned.ErrorCode != "execution_error" || cloned.FailureReason != "device_quota_exhausted" {
-		t.Fatalf("error fields = %q/%q, want standardized execution failure", cloned.ErrorCode, cloned.FailureReason)
+	if cloned.ErrorCode != "device_quota_limit" || cloned.FailureReason != "device_quota_limit" || cloned.TerminalStopCategory != "device_quota" {
+		t.Fatalf("error fields = %q/%q/%q, want standardized device quota failure", cloned.ErrorCode, cloned.FailureReason, cloned.TerminalStopCategory)
 	}
+}
+
+func TestTaskErrorCodeUsesTerminalCategoryAndErrorFallback(t *testing.T) {
+	tests := []struct {
+		name       string
+		task       *TaskRecord
+		wantCode   string
+		wantReason string
+	}{
+		{
+			name:       "submission verification",
+			task:       terminalTask("submission_verification", "submission_verification_required", "触发智能验证"),
+			wantCode:   "submission_verification_required",
+			wantReason: "submission_verification_required",
+		},
+		{
+			name:       "reverse fill exhausted category",
+			task:       terminalTask("reverse_fill_exhausted", "", "反填样本已耗尽"),
+			wantCode:   "reverse_fill_exhausted",
+			wantReason: "反填样本已耗尽",
+		},
+		{
+			name:       "parse failure fallback",
+			task:       &TaskRecord{ID: "task-1", Status: TaskFailed, Error: "解析问卷失败: upstream timeout"},
+			wantCode:   "survey_parse_failed",
+			wantReason: "解析问卷失败: upstream timeout",
+		},
+		{
+			name:       "config failure fallback",
+			task:       &TaskRecord{ID: "task-1", Status: TaskFailed, Error: "准备执行配置失败: answer window invalid"},
+			wantCode:   "config_error",
+			wantReason: "准备执行配置失败: answer window invalid",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloned := cloneTask(tt.task)
+			if cloned.ErrorCode != tt.wantCode || cloned.FailureReason != tt.wantReason {
+				t.Fatalf("error fields = %q/%q, want %q/%q", cloned.ErrorCode, cloned.FailureReason, tt.wantCode, tt.wantReason)
+			}
+		})
+	}
+}
+
+func terminalTask(category, reason, message string) *TaskRecord {
+	state := runstate.NewExecutionState()
+	state.MarkTerminalStop(category, reason, message)
+	return &TaskRecord{ID: "task-1", Status: TaskFailed, State: state, Error: message}
 }

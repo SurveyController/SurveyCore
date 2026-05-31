@@ -162,8 +162,9 @@ API 错误统一返回稳定错误码、用户消息和调试详情：
 | `progress.success` | 成功提交数。 |
 | `progress.fail` | 失败提交数。 |
 | `progress.percent` | 完成比例，范围 `0` 到 `1`。 |
-| `error_code` | 标准化任务错误码，例如 `execution_error`、`task_stopped`、`task_interrupted`。 |
+| `error_code` | 标准化任务错误码，优先对齐 Python 的失败原因，例如 `proxy_unavailable`、`fill_failed`、`submission_verification_required`、`survey_provider_unavailable`、`device_quota_limit`、`user_stopped`。 |
 | `failure_reason` | 失败原因，优先使用运行时终止原因，其次使用错误消息或停止消息。 |
+| `terminal_stop_category` | 终止类别，例如 `fail_threshold`、`reverse_fill_exhausted`、`free_ai_unstable`、`submission_verification`、`target_reached`。 |
 
 | 状态 | 含义 |
 |---|---|

@@ -21,18 +21,19 @@ const (
 
 // TaskRecord is the persisted task state.
 type TaskRecord struct {
-	ID            string                   `json:"id"`
-	Status        string                   `json:"status"`
-	Config        *models.RuntimeConfig    `json:"config"`
-	State         *runstate.ExecutionState `json:"state,omitempty"`
-	Progress      *TaskProgress            `json:"progress,omitempty"`
-	CreatedAt     time.Time                `json:"created_at"`
-	StartedAt     *time.Time               `json:"started_at,omitempty"`
-	FinishedAt    *time.Time               `json:"finished_at,omitempty"`
-	Error         string                   `json:"error,omitempty"`
-	ErrorCode     string                   `json:"error_code,omitempty"`
-	FailureReason string                   `json:"failure_reason,omitempty"`
-	StopMessage   string                   `json:"stop_message,omitempty"`
+	ID                   string                   `json:"id"`
+	Status               string                   `json:"status"`
+	Config               *models.RuntimeConfig    `json:"config"`
+	State                *runstate.ExecutionState `json:"state,omitempty"`
+	Progress             *TaskProgress            `json:"progress,omitempty"`
+	CreatedAt            time.Time                `json:"created_at"`
+	StartedAt            *time.Time               `json:"started_at,omitempty"`
+	FinishedAt           *time.Time               `json:"finished_at,omitempty"`
+	Error                string                   `json:"error,omitempty"`
+	ErrorCode            string                   `json:"error_code,omitempty"`
+	FailureReason        string                   `json:"failure_reason,omitempty"`
+	TerminalStopCategory string                   `json:"terminal_stop_category,omitempty"`
+	StopMessage          string                   `json:"stop_message,omitempty"`
 }
 
 // TaskProgress is a stable summary of task progress for API consumers.

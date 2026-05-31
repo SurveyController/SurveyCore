@@ -24,20 +24,21 @@ type configImportEnvelope struct {
 }
 
 type taskReport struct {
-	TaskID         string              `json:"task_id"`
-	Status         string              `json:"status"`
-	CreatedAt      time.Time           `json:"created_at"`
-	StartedAt      *time.Time          `json:"started_at,omitempty"`
-	FinishedAt     *time.Time          `json:"finished_at,omitempty"`
-	DurationMS     int64               `json:"duration_ms,omitempty"`
-	ErrorCode      string              `json:"error_code,omitempty"`
-	FailureReason  string              `json:"failure_reason,omitempty"`
-	Error          string              `json:"error,omitempty"`
-	StopMessage    string              `json:"stop_message,omitempty"`
-	Config         taskReportConfig    `json:"config"`
-	Progress       *tasks.TaskProgress `json:"progress,omitempty"`
-	ThreadProgress []map[string]any    `json:"thread_progress,omitempty"`
-	Logs           []tasks.TaskLog     `json:"logs"`
+	TaskID               string              `json:"task_id"`
+	Status               string              `json:"status"`
+	CreatedAt            time.Time           `json:"created_at"`
+	StartedAt            *time.Time          `json:"started_at,omitempty"`
+	FinishedAt           *time.Time          `json:"finished_at,omitempty"`
+	DurationMS           int64               `json:"duration_ms,omitempty"`
+	ErrorCode            string              `json:"error_code,omitempty"`
+	FailureReason        string              `json:"failure_reason,omitempty"`
+	TerminalStopCategory string              `json:"terminal_stop_category,omitempty"`
+	Error                string              `json:"error,omitempty"`
+	StopMessage          string              `json:"stop_message,omitempty"`
+	Config               taskReportConfig    `json:"config"`
+	Progress             *tasks.TaskProgress `json:"progress,omitempty"`
+	ThreadProgress       []map[string]any    `json:"thread_progress,omitempty"`
+	Logs                 []tasks.TaskLog     `json:"logs"`
 }
 
 type taskReportConfig struct {
@@ -175,18 +176,19 @@ func (s *Server) loadAllTaskLogs(taskID string) ([]tasks.TaskLog, error) {
 
 func buildTaskReport(task *tasks.TaskRecord, logs []tasks.TaskLog) taskReport {
 	report := taskReport{
-		TaskID:        task.ID,
-		Status:        task.Status,
-		CreatedAt:     task.CreatedAt,
-		StartedAt:     task.StartedAt,
-		FinishedAt:    task.FinishedAt,
-		ErrorCode:     task.ErrorCode,
-		FailureReason: task.FailureReason,
-		Error:         task.Error,
-		StopMessage:   task.StopMessage,
-		Config:        summarizeReportConfig(task.Config),
-		Progress:      task.Progress,
-		Logs:          logs,
+		TaskID:               task.ID,
+		Status:               task.Status,
+		CreatedAt:            task.CreatedAt,
+		StartedAt:            task.StartedAt,
+		FinishedAt:           task.FinishedAt,
+		ErrorCode:            task.ErrorCode,
+		FailureReason:        task.FailureReason,
+		TerminalStopCategory: task.TerminalStopCategory,
+		Error:                task.Error,
+		StopMessage:          task.StopMessage,
+		Config:               summarizeReportConfig(task.Config),
+		Progress:             task.Progress,
+		Logs:                 logs,
 	}
 	if task.StartedAt != nil {
 		end := time.Now()

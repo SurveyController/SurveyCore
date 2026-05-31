@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,7 @@ func (m *TaskManager) Load() []error {
 			task.Error = "服务重启，任务已中断"
 			task.ErrorCode = "task_interrupted"
 			task.FailureReason = task.Error
+			task.TerminalStopCategory = "task_interrupted"
 			errs = appendSaveErr(errs, m.store.SaveTask(task))
 		}
 		m.tasks[task.ID] = task
@@ -134,8 +136,9 @@ func (m *TaskManager) Stop(id string) (*TaskRecord, error) {
 	}
 	task.Status = TaskStopped
 	task.StopMessage = "用户请求停止"
-	task.ErrorCode = "task_stopped"
+	task.ErrorCode = "user_stopped"
 	task.FailureReason = task.StopMessage
+	task.TerminalStopCategory = "user_stopped"
 	if task.State != nil {
 		task.State.SignalStop()
 	}
@@ -219,18 +222,23 @@ func (m *TaskManager) run(ctx context.Context, id string) {
 	current.State = state
 	current.FinishedAt = &finished
 	delete(m.runtimes, id)
+	category, reason, message := terminalSnapshot(state)
+	current.TerminalStopCategory = category
 	if current.Status == TaskStopped || ctx.Err() != nil {
 		current.Status = TaskStopped
 		if current.StopMessage == "" {
 			current.StopMessage = "任务已停止"
 		}
-		current.ErrorCode = "task_stopped"
-		current.FailureReason = firstNonEmpty(terminalMessage(state), current.StopMessage)
+		if current.TerminalStopCategory == "" {
+			current.TerminalStopCategory = "user_stopped"
+		}
+		current.ErrorCode = "user_stopped"
+		current.FailureReason = firstNonEmpty(reason, message, current.StopMessage)
 	} else if err != nil {
 		current.Status = TaskFailed
 		current.Error = err.Error()
-		current.ErrorCode = "execution_error"
-		current.FailureReason = firstNonEmpty(terminalReason(state), err.Error())
+		current.ErrorCode = classifyTaskErrorCode(category, reason, err)
+		current.FailureReason = firstNonEmpty(reason, message, err.Error())
 	} else {
 		current.Status = TaskSucceeded
 		current.ErrorCode = ""
@@ -423,6 +431,9 @@ func syncTaskDerivedFields(task *TaskRecord) {
 		return
 	}
 	task.Progress = buildTaskProgress(task)
+	if task.TerminalStopCategory == "" {
+		task.TerminalStopCategory = deriveTerminalStopCategory(task)
+	}
 	if task.FailureReason == "" {
 		task.FailureReason = deriveFailureReason(task)
 	}
@@ -462,9 +473,9 @@ func buildTaskProgress(task *TaskRecord) *TaskProgress {
 func deriveErrorCode(task *TaskRecord) string {
 	switch task.Status {
 	case TaskFailed:
-		return "execution_error"
+		return classifyTaskErrorCode(task.TerminalStopCategory, task.FailureReason, errors.New(task.Error))
 	case TaskStopped:
-		return "task_stopped"
+		return "user_stopped"
 	case TaskInterrupted:
 		return "task_interrupted"
 	default:
@@ -472,32 +483,67 @@ func deriveErrorCode(task *TaskRecord) string {
 	}
 }
 
+func deriveTerminalStopCategory(task *TaskRecord) string {
+	if task.State == nil {
+		return ""
+	}
+	category, _, _ := task.State.GetTerminalStopSnapshot()
+	return category
+}
+
 func deriveFailureReason(task *TaskRecord) string {
 	if task.State != nil {
-		if reason := terminalReason(task.State); reason != "" {
+		_, reason, message := task.State.GetTerminalStopSnapshot()
+		if reason != "" {
 			return reason
 		}
-		if message := terminalMessage(task.State); message != "" {
+		if message != "" {
 			return message
 		}
 	}
 	return firstNonEmpty(task.Error, task.StopMessage)
 }
 
-func terminalReason(state *runstate.ExecutionState) string {
+func terminalSnapshot(state *runstate.ExecutionState) (category, reason, message string) {
 	if state == nil {
-		return ""
+		return "", "", ""
 	}
-	_, reason, _ := state.GetTerminalStopSnapshot()
-	return reason
+	return state.GetTerminalStopSnapshot()
 }
 
-func terminalMessage(state *runstate.ExecutionState) string {
-	if state == nil {
-		return ""
+func classifyTaskErrorCode(category, reason string, err error) string {
+	for _, value := range []string{reason, category} {
+		switch value {
+		case "proxy_unavailable",
+			"page_load_failed",
+			"fill_failed",
+			"submission_verification_required",
+			"survey_provider_unavailable",
+			"device_quota_limit",
+			"user_stopped",
+			"reverse_fill_exhausted",
+			"free_ai_unstable":
+			return value
+		case "fail_threshold",
+			"proxy_unavailable_threshold",
+			"submission_verification_threshold":
+			return value
+		}
 	}
-	_, _, message := state.GetTerminalStopSnapshot()
-	return message
+	if err == nil {
+		return "execution_error"
+	}
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "必须提供问卷链接"):
+		return "validation_error"
+	case strings.Contains(message, "解析问卷失败"):
+		return "survey_parse_failed"
+	case strings.Contains(message, "准备执行配置失败"):
+		return "config_error"
+	default:
+		return "execution_error"
+	}
 }
 
 func firstNonEmpty(values ...string) string {
