@@ -118,7 +118,9 @@ curl -X POST http://localhost:19178/api/surveys/parse \
 
 ```json
 {
-  "error": "url 不能为空"
+  "error": "url 不能为空",
+  "code": "validation_error",
+  "message": "url 不能为空"
 }
 ```
 
@@ -235,6 +237,18 @@ Accept: application/json
 ```
 
 完整字段见 [数据结构](./schemas#runtimeconfig)。
+
+也支持 Python 桌面端常用包络：
+
+```json
+{
+  "config": {
+    "url": "https://www.wjx.cn/vm/example.aspx",
+    "target": 10,
+    "threads": 2
+  }
+}
+```
 
 ### 请求示例
 
@@ -440,6 +454,121 @@ curl "http://localhost:19178/api/tasks/9f4c6b2b1a2d4e9f/logs?after=12&limit=100"
 ```
 
 `event` 字段来自 Go 结构体，目前没有 JSON 标签，所以返回字段是大写驼峰。
+
+## 导出任务配置
+
+```http
+GET /api/tasks/{id}/config
+```
+
+返回指定任务保存的运行配置 JSON，并设置附件下载响应头。
+
+### 请求示例
+
+```bash
+curl -OJ http://localhost:19178/api/tasks/9f4c6b2b1a2d4e9f/config
+```
+
+## 导出任务报告
+
+```http
+GET /api/tasks/{id}/report
+```
+
+默认导出 JSON 报告。传 `?format=csv` 时导出日志 CSV。
+
+### 请求示例
+
+```bash
+curl -OJ http://localhost:19178/api/tasks/9f4c6b2b1a2d4e9f/report
+curl -OJ "http://localhost:19178/api/tasks/9f4c6b2b1a2d4e9f/report?format=csv"
+```
+
+### JSON 返回字段
+
+| 字段 | 说明 |
+|---|---|
+| `task_id` | 任务 ID。 |
+| `status` | 任务状态。 |
+| `config` | 任务配置摘要。 |
+| `progress` | 当前进度摘要。 |
+| `error_code` | 标准化错误码。 |
+| `failure_reason` | 失败原因。 |
+| `terminal_stop_category` | 运行时终止类别。 |
+| `logs` | 完整任务日志。 |
+
+## 导入兼容配置
+
+```http
+POST /api/configs/import
+```
+
+导入并标准化运行配置。支持直接传 `RuntimeConfig`，也支持 `{ "config": ... }` 包络。旧配置中的私有业务字段会被忽略。
+
+### 请求示例
+
+```bash
+curl -X POST http://localhost:19178/api/configs/import \
+  -H "Content-Type: application/json" \
+  -d "{\"config\":{\"url\":\"https://www.wjx.cn/vm/example.aspx\",\"target\":\"10\"}}"
+```
+
+## 导出兼容配置
+
+```http
+POST /api/configs/export
+```
+
+读取兼容配置后返回标准化 JSON 文件。
+
+### 请求示例
+
+```bash
+curl -OJ -X POST http://localhost:19178/api/configs/export \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://www.wjx.cn/vm/example.aspx\",\"target\":10}"
+```
+
+## 测试 AI 连接
+
+```http
+POST /api/ai/test
+```
+
+用于测试一组 AI 连接参数是否可用。SurveyCore 不内置免费 AI 私有服务链路；生产任务的 AI 默认值建议放在服务端 `configs/surveycore.toml`。
+
+### 请求体
+
+```json
+{
+  "ai_provider": "custom",
+  "ai_api_key": "sk-...",
+  "ai_base_url": "https://api.example.com/v1",
+  "ai_api_protocol": "responses",
+  "ai_model": "example-model",
+  "question": "这是一个测试问题"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `ai_provider` | `string` | 否 | `custom` 表示自定义 OpenAI 兼容服务。 |
+| `ai_api_key` | `string` | 是 | AI API Key。 |
+| `ai_base_url` | `string` | 否 | Base URL 或完整 endpoint。为空时使用默认 DeepSeek Base URL。 |
+| `ai_api_protocol` | `string` | 否 | `auto`、`chat_completions` 或 `responses`。 |
+| `ai_model` | `string` | 否 | 模型名。为空时使用默认模型。 |
+| `ai_system_prompt` | `string` | 否 | 系统提示词。 |
+| `question` | `string` | 否 | 测试问题。 |
+
+### 返回示例
+
+```json
+{
+  "ok": true,
+  "message": "AI 连接测试成功",
+  "preview": "连接成功"
+}
+```
 
 ## 解析二维码
 

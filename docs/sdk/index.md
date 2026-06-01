@@ -68,7 +68,10 @@ Accept: application/json
 4. 调 `POST /api/tasks` 创建任务。
 5. 调 `GET /api/tasks/{id}` 查询任务状态。
 6. 调 `GET /api/tasks/{id}/logs` 分页读取日志。
-7. 需要停止时调 `POST /api/tasks/{id}/stop`。
+7. 需要归档结果时调 `GET /api/tasks/{id}/config` 或 `GET /api/tasks/{id}/report`。
+8. 需要停止时调 `POST /api/tasks/{id}/stop`。
+
+SurveyCore 不包含 SurveyController 原有的账号、额度、设备身份或私有服务接入逻辑。二次开发者应在 SurveyCore 外层实现自己的鉴权和业务服务。
 
 ## 接口清单
 
@@ -78,9 +81,14 @@ Accept: application/json
 | `GET` | `/api/version` | 读取服务版本号。 |
 | `POST` | `/api/surveys/parse` | 解析问卷链接。 |
 | `POST` | `/api/configs` | 生成默认运行配置。 |
+| `POST` | `/api/configs/import` | 导入并标准化兼容运行配置。 |
+| `POST` | `/api/configs/export` | 导出标准化运行配置文件。 |
 | `POST` | `/api/tasks` | 创建提交任务。 |
 | `GET` | `/api/tasks` | 查询任务列表。 |
 | `GET` | `/api/tasks/{id}` | 查询单个任务。 |
 | `POST` | `/api/tasks/{id}/stop` | 停止任务。 |
 | `GET` | `/api/tasks/{id}/logs` | 分页读取任务日志。 |
+| `GET` | `/api/tasks/{id}/config` | 导出任务配置。 |
+| `GET` | `/api/tasks/{id}/report` | 导出任务报告。 |
+| `POST` | `/api/ai/test` | 测试 AI 连接参数。 |
 | `POST` | `/api/qrcode/decode` | 解析二维码图片里的问卷链接。 |

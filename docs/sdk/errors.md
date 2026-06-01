@@ -8,11 +8,14 @@ outline: deep
 
 ```json
 {
-  "error": "错误原因"
+  "error": "任务配置无效",
+  "code": "validation_error",
+  "message": "任务配置无效",
+  "detail": "url 不能为空"
 }
 ```
 
-当前版本没有独立的业务错误码字段。错误处理以 HTTP 状态码为准。
+客户端应优先看 HTTP 状态码和 `code`，`detail` 只用于调试展示。
 
 ## 状态码
 
@@ -37,12 +40,20 @@ outline: deep
 | `POST /api/surveys/parse` | `502` | 问卷平台访问失败、链接不支持、问卷关闭、需要登录。 |
 | `POST /api/configs` | `400` | JSON 无效、字段名错误。 |
 | `POST /api/configs` | `502` | 传入 `url` 后解析问卷失败。 |
+| `POST /api/configs/import` | `400` | JSON 无效或配置包络无效。 |
+| `POST /api/configs/export` | `400` | JSON 无效或配置包络无效。 |
 | `POST /api/tasks` | `400` | JSON 无效、字段名错误、任务保存失败。 |
 | `GET /api/tasks` | `200` | 成功返回任务列表。 |
 | `GET /api/tasks/{id}` | `404` | 任务 ID 不存在。 |
 | `POST /api/tasks/{id}/stop` | `404` | 任务 ID 不存在。 |
 | `GET /api/tasks/{id}/logs` | `400` | `after` 或 `limit` 参数不合法。 |
 | `GET /api/tasks/{id}/logs` | `404` | 任务 ID 不存在。 |
+| `GET /api/tasks/{id}/config` | `404` | 任务 ID 不存在。 |
+| `GET /api/tasks/{id}/report` | `400` | `format` 参数不合法。 |
+| `GET /api/tasks/{id}/report` | `404` | 任务 ID 不存在。 |
+| `GET /api/tasks/{id}/report` | `500` | 日志读取或报告生成失败。 |
+| `POST /api/ai/test` | `400` | JSON 无效或 AI 配置不完整。 |
+| `POST /api/ai/test` | `502` | AI 上游连接失败。 |
 | `POST /api/qrcode/decode` | `400` | 表单无效、缺少 `image` 文件、二维码无法解析出问卷链接。 |
 | `POST /api/qrcode/decode` | `500` | 临时文件、文件读取或服务内部处理失败。 |
 
@@ -65,7 +76,10 @@ outline: deep
 
 ```json
 {
-  "error": "JSON 请求体无效: json: unknown field \"taskTarget\""
+  "error": "JSON 请求体无效",
+  "code": "invalid_json",
+  "message": "JSON 请求体无效",
+  "detail": "json: unknown field \"taskTarget\""
 }
 ```
 
@@ -73,7 +87,9 @@ URL 为空：
 
 ```json
 {
-  "error": "url 不能为空"
+  "error": "url 不能为空",
+  "code": "validation_error",
+  "message": "url 不能为空"
 }
 ```
 
@@ -81,7 +97,10 @@ URL 为空：
 
 ```json
 {
-  "error": "日志游标必须是非负整数"
+  "error": "日志查询参数无效",
+  "code": "invalid_query",
+  "message": "日志查询参数无效",
+  "detail": "日志游标必须是非负整数"
 }
 ```
 
@@ -89,7 +108,10 @@ URL 为空：
 
 ```json
 {
-  "error": "日志条数必须是 1 到 1000 之间的整数"
+  "error": "日志查询参数无效",
+  "code": "invalid_query",
+  "message": "日志查询参数无效",
+  "detail": "日志条数必须是 1 到 1000 之间的整数"
 }
 ```
 
@@ -97,7 +119,10 @@ URL 为空：
 
 ```json
 {
-  "error": "缺少 image 文件"
+  "error": "缺少 image 文件",
+  "code": "validation_error",
+  "message": "缺少 image 文件",
+  "detail": "http: no such file"
 }
 ```
 
@@ -111,7 +136,9 @@ URL 为空：
 
 ```json
 {
-  "error": "任务不存在"
+  "error": "任务不存在",
+  "code": "not_found",
+  "message": "任务不存在"
 }
 ```
 
@@ -125,7 +152,10 @@ URL 为空：
 
 ```json
 {
-  "error": "无法获取题目: 问卷已停止，无法作答"
+  "error": "问卷解析失败",
+  "code": "upstream_error",
+  "message": "问卷解析失败",
+  "detail": "无法获取题目: 问卷已停止，无法作答"
 }
 ```
 
