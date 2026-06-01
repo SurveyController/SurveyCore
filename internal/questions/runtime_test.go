@@ -1,7 +1,6 @@
 package questions
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -71,87 +70,24 @@ func TestRunContextAppliesMultipleConstraints(t *testing.T) {
 	}
 }
 
-func TestRunContextGeneratesFreeAIText(t *testing.T) {
+func TestRunContextUsesServerAIForEnabledText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"AI答案"}}]}`))
+	}))
+	defer server.Close()
+
 	cfg := &execution.ExecutionConfig{
-		AIMode:      "free",
+		AIAPIKey:    "test-key",
+		AIBaseURL:   server.URL,
+		AIModel:     "test-model",
 		TextAIFlags: []bool{true},
 	}
 	runtime := NewRunContext(cfg, runstate.NewExecutionState())
 
 	got := runtime.GenerateText(models.SurveyQuestionMeta{Num: 1, Title: "评价"}, 0, "fallback", 1)
-	if got == "fallback" || got == "" {
-		t.Fatalf("AI text = %q, want generated answer", got)
-	}
-}
-
-func TestAIClientCallsFreeAIWithRandomIPIdentity(t *testing.T) {
-	var gotDeviceID string
-	var gotBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotDeviceID = r.Header.Get("X-Device-ID")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"answers":["连接成功"]}`))
-	}))
-	defer server.Close()
-
-	client := NewAIClient(AIConfig{
-		Mode:         "free",
-		SystemPrompt: "系统提示",
-		FreeEndpoint: server.URL,
-		FreeUserID:   88,
-		FreeDeviceID: "device-88",
-		StrictFree:   true,
-	})
-
-	got, err := client.GenerateAnswer("评价", "fill_blank", 1)
-	if err != nil {
-		t.Fatalf("GenerateAnswer returned error: %v", err)
-	}
-	if got != "连接成功" {
-		t.Fatalf("answer = %q, want free AI answer", got)
-	}
-	if gotDeviceID != "device-88" {
-		t.Fatalf("X-Device-ID = %q, want device-88", gotDeviceID)
-	}
-	if gotBody["user_id"] != float64(88) || gotBody["question_type"] != "fill_blank" || gotBody["question_content"] != "评价" || gotBody["system_prompt"] != "系统提示" {
-		t.Fatalf("request body = %#v, want Python-compatible free AI payload", gotBody)
-	}
-	if _, ok := gotBody["blank_count"]; ok {
-		t.Fatalf("single blank request should omit blank_count: %#v", gotBody)
-	}
-}
-
-func TestAIClientCallsFreeAIForMultiBlank(t *testing.T) {
-	var gotBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"answers":["服务好","速度快"]}`))
-	}))
-	defer server.Close()
-
-	client := NewAIClient(AIConfig{
-		Mode:         "free",
-		FreeEndpoint: server.URL,
-		FreeUserID:   88,
-		FreeDeviceID: "device-88",
-		StrictFree:   true,
-	})
-
-	got, err := client.GenerateAnswer("请评价", "", 2)
-	if err != nil {
-		t.Fatalf("GenerateAnswer returned error: %v", err)
-	}
-	if got != "服务好|速度快" {
-		t.Fatalf("answer = %q, want pipe-delimited multi blank answer", got)
-	}
-	if gotBody["question_type"] != "multi_fill_blank" || gotBody["blank_count"] != float64(2) {
-		t.Fatalf("request body = %#v, want multi_fill_blank with blank_count", gotBody)
+	if got != "AI答案" {
+		t.Fatalf("AI text = %q, want AI answer", got)
 	}
 }
 
@@ -169,7 +105,6 @@ func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 	defer server.Close()
 
 	client := NewAIClient(AIConfig{
-		Mode:    "api",
 		APIKey:  "test-key",
 		BaseURL: server.URL,
 		Model:   "test-model",
@@ -194,7 +129,6 @@ func TestAIClientCallsResponsesAPI(t *testing.T) {
 	defer server.Close()
 
 	client := NewAIClient(AIConfig{
-		Mode:     "provider",
 		Provider: "custom",
 		APIKey:   "test-key",
 		BaseURL:  server.URL + "/v1",
@@ -225,7 +159,6 @@ func TestAIClientAutoFallsBackToResponsesOnEndpointMismatch(t *testing.T) {
 	defer server.Close()
 
 	client := NewAIClient(AIConfig{
-		Mode:     "provider",
 		Provider: "custom",
 		APIKey:   "test-key",
 		BaseURL:  server.URL + "/v1",
@@ -243,7 +176,7 @@ func TestAIClientAutoFallsBackToResponsesOnEndpointMismatch(t *testing.T) {
 }
 
 func TestAIClientClassifiesConfigErrorWithoutRetry(t *testing.T) {
-	client := NewAIClient(AIConfig{Mode: "api"})
+	client := NewAIClient(AIConfig{})
 
 	_, err := client.GenerateAnswer("评价", "1", 1)
 	var aiErr *AIError
@@ -254,8 +187,6 @@ func TestAIClientClassifiesConfigErrorWithoutRetry(t *testing.T) {
 
 func TestRunContextGeneratesConfiguredRandomTextModes(t *testing.T) {
 	cfg := &execution.ExecutionConfig{
-		AIMode:              "free",
-		TextAIFlags:         []bool{true, true, false},
 		TextRandomModes:     []string{models.TextRandomMobile, models.TextRandomInteger, ""},
 		TextRandomIntRanges: [][]int{nil, []int{12, 10}, nil},
 	}

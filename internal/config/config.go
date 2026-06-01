@@ -58,18 +58,6 @@ func MergeDefaults(cfg *models.RuntimeConfig) {
 	if cfg.AnswerDuration[0] <= 0 && cfg.AnswerDuration[1] <= 0 {
 		cfg.AnswerDuration = defaults.AnswerDuration
 	}
-	if cfg.ProxySource == "" {
-		cfg.ProxySource = defaults.ProxySource
-	}
-	if cfg.AIMode == "" {
-		cfg.AIMode = defaults.AIMode
-	}
-	if cfg.AIProvider == "" {
-		cfg.AIProvider = defaults.AIProvider
-	}
-	if cfg.AIAPIProtocol == "" {
-		cfg.AIAPIProtocol = defaults.AIAPIProtocol
-	}
 	if cfg.PsychoTargetAlpha == 0 {
 		cfg.PsychoTargetAlpha = defaults.PsychoTargetAlpha
 	}
@@ -97,30 +85,13 @@ func BuildExecutionConfigWithError(cfg *models.RuntimeConfig, questions []models
 		NumThreads:                  cfg.Threads,
 		TargetNum:                   cfg.Target,
 		FailThreshold:               5,
-		StopOnFailEnabled:           cfg.FailStopEnabled,
 		SubmitIntervalRangeSeconds:  cfg.SubmitInterval,
 		AnswerDurationRangeSeconds:  cfg.AnswerDuration,
 		AnswerDatetimeWindowMS:      [2]int64{},
-		RandomProxyIPEnabled:        cfg.RandomIPEnabled,
-		ProxySource:                 cfg.ProxySource,
-		CustomProxyAPI:              cfg.CustomProxyAPI,
-		ProxyAreaCode:               safeStr(cfg.ProxyAreaCode),
-		RandomIPUserID:              cfg.RandomIPUserID,
-		RandomIPDeviceID:            cfg.RandomIPDeviceID,
-		IPExtractEndpoint:           cfg.IPExtractEndpoint,
-		RandomIPLeaseMinute:         cfg.RandomIPLeaseMinute,
 		RandomUserAgentEnabled:      cfg.RandomUAEnabled,
 		RandomUserAgentKeys:         append([]string{}, cfg.RandomUAKeys...),
 		UserAgentRatios:             cfg.RandomUARatios,
-		PauseOnAliyunCaptcha:        cfg.PauseOnAliyunCaptcha,
 		PsychoTargetAlpha:           cfg.PsychoTargetAlpha,
-		AIMode:                      cfg.AIMode,
-		AIProvider:                  cfg.AIProvider,
-		AIAPIKey:                    cfg.AIAPIKey,
-		AIBaseURL:                   cfg.AIBaseURL,
-		AIAPIProtocol:               cfg.AIAPIProtocol,
-		AIModel:                     cfg.AIModel,
-		AISystemPrompt:              cfg.AISystemPrompt,
 		AnswerRules:                 cfg.AnswerRules,
 		SingleProb:                  make([]any, entryCount),
 		DroplistProb:                make([]any, entryCount),

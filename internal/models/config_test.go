@@ -55,8 +55,8 @@ func TestRuntimeConfigSerializationAddsPythonSchemaMetadata(t *testing.T) {
 	if payload["config_schema_version"] != float64(CurrentConfigSchemaVersion) {
 		t.Fatalf("payload = %#v, want Python schema version", payload)
 	}
-	if payload["_ai_config_present"] != true {
-		t.Fatalf("payload = %#v, want AI config marker", payload)
+	if payload["_ai_config_present"] != false {
+		t.Fatalf("payload = %#v, want no request-side AI config marker", payload)
 	}
 }
 
@@ -118,8 +118,6 @@ func TestRuntimeConfigAcceptsPythonLooseScalarFields(t *testing.T) {
 		"url":123,
 		"target":"5",
 		"threads":"2",
-		"random_ip_enabled":"true",
-		"fail_stop_enabled":"0",
 		"psycho_target_alpha":"0.91",
 		"submit_interval":["7","9"],
 		"answer_duration":100,
@@ -132,9 +130,6 @@ func TestRuntimeConfigAcceptsPythonLooseScalarFields(t *testing.T) {
 	}
 	if cfg.URL != "123" || cfg.Target != 5 || cfg.Threads != 2 {
 		t.Fatalf("basic fields = url %q target %d threads %d, want string/int coercion", cfg.URL, cfg.Target, cfg.Threads)
-	}
-	if !cfg.RandomIPEnabled || cfg.FailStopEnabled {
-		t.Fatalf("bool fields = random_ip %v fail_stop %v, want Python-like coercion", cfg.RandomIPEnabled, cfg.FailStopEnabled)
 	}
 	if cfg.PsychoTargetAlpha != 0.91 {
 		t.Fatalf("alpha = %v, want parsed float", cfg.PsychoTargetAlpha)
@@ -181,10 +176,12 @@ func TestRuntimeConfigAcceptsPythonLooseAnswerDurationLists(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigNormalizesPythonCodecBoundaries(t *testing.T) {
+func TestRuntimeConfigNormalizesPythonCodecBoundariesAndDropsPrivateFields(t *testing.T) {
 	cfg, err := DeserializeRuntimeConfig([]byte(`{
 		"proxy_source":"bad",
 		"ai_mode":"unsupported",
+		"random_ip_user_id":88,
+		"random_ip_device_id":"device-88",
 		"reverse_fill_format":"spreadsheet",
 		"reverse_fill_start_row":0,
 		"reverse_fill_threads":"0",
@@ -193,11 +190,10 @@ func TestRuntimeConfigNormalizesPythonCodecBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ProxySource != "default" {
-		t.Fatalf("proxy source = %q, want default", cfg.ProxySource)
-	}
-	if cfg.AIMode != "free" {
-		t.Fatalf("ai mode = %q, want free", cfg.AIMode)
+	for _, key := range []string{"proxy_source", "ai_mode", "random_ip_user_id", "random_ip_device_id"} {
+		if _, ok := cfg.ExtraFields[key]; ok {
+			t.Fatalf("private legacy field %q preserved in extras: %#v", key, cfg.ExtraFields)
+		}
 	}
 	if cfg.ReverseFillFormat != ReverseFillFormatAuto {
 		t.Fatalf("reverse fill format = %q, want auto", cfg.ReverseFillFormat)

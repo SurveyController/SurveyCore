@@ -18,7 +18,6 @@ import (
 	"github.com/SurveyController/SurveyCore/internal/execution"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
-	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 	"github.com/SurveyController/SurveyCore/internal/providers"
 )
 
@@ -79,11 +78,12 @@ func (m *TaskManager) Create(ctx context.Context, cfg *models.RuntimeConfig) (*T
 	if err != nil {
 		return nil, err
 	}
+	runtimeCfg := cloneRuntimeConfig(cfg)
 	now := time.Now()
 	task := &TaskRecord{
 		ID:        id,
 		Status:    TaskPending,
-		Config:    cloneRuntimeConfig(cfg),
+		Config:    runtimeCfg,
 		CreatedAt: now,
 	}
 	if err := m.store.SaveTask(task); err != nil {
@@ -184,7 +184,7 @@ func (m *TaskManager) Logs(id string, afterID int64, limit int) (*TaskLogPage, e
 }
 
 func (m *TaskManager) ParseSurvey(ctx context.Context, surveyURL string) (*models.SurveyDefinition, error) {
-	return engine.NewEngine(m.registry, nil, nil).ParseSurvey(ctx, surveyURL)
+	return engine.NewEngine(m.registry, nil).ParseSurvey(ctx, surveyURL)
 }
 
 func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error) {
@@ -268,7 +268,7 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 		return errors.New("必须提供问卷链接")
 	}
 
-	e := engine.NewEngine(m.registry, nil, nil)
+	e := engine.NewEngine(m.registry, nil)
 	m.logTask(taskID, logging.LevelInfo, "解析问卷", logging.F("url", cfg.URL))
 	def, err := e.ParseSurvey(ctx, cfg.URL)
 	if err != nil {
@@ -290,12 +290,6 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 		t.State = state
 	})
 
-	var pool *proxy.Pool
-	if cfg.RandomIPEnabled {
-		pool = NewProxyPoolFromRuntimeConfig(cfg)
-		m.logTask(taskID, logging.LevelInfo, "随机 IP 已启用", logging.F("proxy_source", cfg.ProxySource))
-	}
-
 	handler := func(event engine.StatusEvent) {
 		level := logging.LevelInfo
 		message := event.StatusText
@@ -307,7 +301,7 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 			t.State = state
 		})
 	}
-	runner := engine.NewEngine(m.registry, pool, handler)
+	runner := engine.NewEngine(m.registry, handler)
 	if err := runner.Run(ctx, execCfg, state); err != nil {
 		return err
 	}
@@ -533,10 +527,9 @@ func classifyTaskErrorCode(category, reason string, err error) string {
 			"fill_failed",
 			"submission_verification_required",
 			"survey_provider_unavailable",
-			"device_quota_limit",
 			"user_stopped",
 			"reverse_fill_exhausted",
-			"free_ai_unstable":
+			"ai_unstable":
 			return value
 		case "fail_threshold",
 			"proxy_unavailable_threshold",
@@ -567,34 +560,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// NewProxyPoolFromRuntimeConfig builds a proxy pool from user config.
-func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
-	areaCode := ""
-	if cfg.ProxyAreaCode != nil {
-		areaCode = *cfg.ProxyAreaCode
-	}
-	userID := cfg.RandomIPUserID
-	deviceID := cfg.RandomIPDeviceID
-	if userID <= 0 || deviceID == "" {
-		if snapshot, err := proxy.DefaultRandomIPService().Snapshot(); err == nil && snapshot.Authenticated {
-			if userID <= 0 {
-				userID = snapshot.UserID
-			}
-			if deviceID == "" {
-				deviceID = snapshot.DeviceID
-			}
-		}
-	}
-	return proxy.NewPool(
-		cfg.ProxySource,
-		cfg.CustomProxyAPI,
-		proxy.WithOfficialAreaCode(areaCode),
-		proxy.WithOfficialCredentials(userID, deviceID),
-		proxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
-		proxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
-	)
 }
 
 func DefaultTaskManager() (*TaskManager, error) {

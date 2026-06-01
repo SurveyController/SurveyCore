@@ -13,7 +13,6 @@ import (
 
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
-	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 )
 
 // StatusEvent represents a status update from the engine.
@@ -39,16 +38,14 @@ type ProviderRegistry interface {
 // Engine manages the concurrent execution of survey submissions.
 type Engine struct {
 	registry ProviderRegistry
-	pool     *proxy.Pool
 	handler  StatusHandler
 	paused   atomic.Bool
 }
 
 // NewEngine creates a new execution engine.
-func NewEngine(registry ProviderRegistry, pool *proxy.Pool, handler StatusHandler) *Engine {
+func NewEngine(registry ProviderRegistry, handler StatusHandler) *Engine {
 	return &Engine{
 		registry: registry,
-		pool:     pool,
 		handler:  handler,
 	}
 }
@@ -87,12 +84,6 @@ func (e *Engine) Run(ctx context.Context, cfg *execution.ExecutionConfig, state 
 	scheduler.Start()
 	defer scheduler.Close()
 
-	// Start proxy prefetch loop if proxy pool is configured
-	if e.pool != nil && cfg.RandomProxyIPEnabled {
-		e.prefetchProxyBatch(e.pool, concurrency*2)
-		go e.proxyPrefetchLoop(ctx, e.pool, cfg, concurrency)
-	}
-
 	var wg sync.WaitGroup
 
 	// Start worker goroutines
@@ -127,37 +118,6 @@ func (e *Engine) Run(ctx context.Context, cfg *execution.ExecutionConfig, state 
 		case <-time.After(30 * time.Second):
 		}
 		return nil
-	}
-}
-
-func (e *Engine) prefetchProxyBatch(pool *proxy.Pool, count int) {
-	if count <= 0 {
-		count = 1
-	}
-	leases, err := pool.FetchBatch(count)
-	if err != nil {
-		logging.WarnFields("获取代理失败", logging.F("component", "proxy_prefetch"), logging.F("error", err))
-		return
-	}
-	pool.AddLeases(leases)
-}
-
-func (e *Engine) proxyPrefetchLoop(ctx context.Context, pool *proxy.Pool, cfg *execution.ExecutionConfig, concurrency int) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Prefetch if pool is running low
-			bufferSize := concurrency * 2
-			if pool.Size() < bufferSize {
-				e.prefetchProxyBatch(pool, bufferSize)
-			}
-			pool.CleanupExpired()
-		}
 	}
 }
 
@@ -245,7 +205,7 @@ func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg
 		scheduler.Release(tokenID, delay)
 
 		// Check fail threshold
-		if cfg.StopOnFailEnabled && state.GetCurFail() >= cfg.FailThreshold {
+		if state.GetCurFail() >= cfg.FailThreshold {
 			state.MarkTerminalStop("fail_threshold", "fail_threshold", fmt.Sprintf("累计失败 %d 次，已停止", state.GetCurFail()))
 			state.SignalStop()
 			return
@@ -261,29 +221,10 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 		state.UpdateThreadStatus(threadName, "等待中", &running)
 	}()
 
-	// Get proxy if enabled
-	var proxyAddr, rawProxyAddr string
-	if cfg.RandomProxyIPEnabled && e.pool != nil {
-		lease := e.pool.Pop()
-		if lease == nil {
-			e.prefetchProxyBatch(e.pool, 1)
-			lease = e.pool.Pop()
-		}
-		if lease == nil {
-			logging.WarnFields("随机 IP 已启用但没有可用代理", logging.F("worker", threadName))
-			return false
-		}
-		if lease != nil {
-			rawProxyAddr = lease.Address
-			proxyAddr = proxy.ExtractProxyAddress(lease.Address)
-		}
-	}
-
 	opts := models.FillOptions{
-		ThreadName:   threadName,
-		ProxyAddress: proxyAddr,
-		UserAgent:    sampleUserAgent(cfg),
-		StopChan:     state.StopChan,
+		ThreadName: threadName,
+		UserAgent:  sampleUserAgent(cfg),
+		StopChan:   state.StopChan,
 	}
 
 	state.UpdateThreadStatus(threadName, "提交问卷", &running)
@@ -291,9 +232,6 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 	success, err := adapter.FillSurveyHTTP(ctx, cfg, state, opts)
 	if err != nil {
 		logging.WarnFields("提交失败", logging.F("worker", threadName), logging.F("error", err))
-		if cfg.RandomProxyIPEnabled && e.pool != nil && rawProxyAddr != "" {
-			e.pool.MarkBad(rawProxyAddr)
-		}
 		return false
 	}
 

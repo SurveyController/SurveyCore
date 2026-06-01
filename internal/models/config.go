@@ -29,28 +29,11 @@ type RuntimeConfig struct {
 	SubmitInterval         [2]int                     `json:"submit_interval,omitempty"`
 	AnswerDuration         [2]int                     `json:"answer_duration,omitempty"`
 	AnswerDatetimeWindow   [2]string                  `json:"answer_datetime_window,omitempty"`
-	RandomIPEnabled        bool                       `json:"random_ip_enabled,omitempty"`
-	ProxySource            string                     `json:"proxy_source,omitempty"`
-	CustomProxyAPI         string                     `json:"custom_proxy_api,omitempty"`
-	ProxyAreaCode          *string                    `json:"proxy_area_code,omitempty"`
-	RandomIPUserID         int                        `json:"random_ip_user_id,omitempty"`
-	RandomIPDeviceID       string                     `json:"random_ip_device_id,omitempty"`
-	IPExtractEndpoint      string                     `json:"ip_extract_endpoint,omitempty"`
-	RandomIPLeaseMinute    int                        `json:"random_ip_lease_minute,omitempty"`
 	RandomUAEnabled        bool                       `json:"random_ua_enabled,omitempty"`
 	RandomUAKeys           []string                   `json:"random_ua_keys,omitempty"`
 	RandomUARatios         map[string]int             `json:"random_ua_ratios,omitempty"`
-	FailStopEnabled        bool                       `json:"fail_stop_enabled,omitempty"`
-	PauseOnAliyunCaptcha   bool                       `json:"pause_on_aliyun_captcha,omitempty"`
 	ReliabilityModeEnabled bool                       `json:"reliability_mode_enabled,omitempty"`
 	PsychoTargetAlpha      float64                    `json:"psycho_target_alpha,omitempty"`
-	AIMode                 string                     `json:"ai_mode,omitempty"`
-	AIProvider             string                     `json:"ai_provider,omitempty"`
-	AIAPIKey               string                     `json:"ai_api_key,omitempty"`
-	AIBaseURL              string                     `json:"ai_base_url,omitempty"`
-	AIAPIProtocol          string                     `json:"ai_api_protocol,omitempty"`
-	AIModel                string                     `json:"ai_model,omitempty"`
-	AISystemPrompt         string                     `json:"ai_system_prompt,omitempty"`
 	ReverseFillEnabled     bool                       `json:"reverse_fill_enabled,omitempty"`
 	ReverseFillSourcePath  string                     `json:"reverse_fill_source_path,omitempty"`
 	ReverseFillFormat      string                     `json:"reverse_fill_format,omitempty"`
@@ -70,14 +53,8 @@ func NewDefaultRuntimeConfig() RuntimeConfig {
 		Target:                 1,
 		Threads:                1,
 		AnswerDuration:         [2]int{60, 120},
-		ProxySource:            "default",
-		FailStopEnabled:        true,
-		PauseOnAliyunCaptcha:   true,
 		ReliabilityModeEnabled: true,
 		PsychoTargetAlpha:      0.85,
-		AIMode:                 "free",
-		AIProvider:             "deepseek",
-		AIAPIProtocol:          "auto",
 		ReverseFillFormat:      "auto",
 		ReverseFillStartRow:    1,
 		ReverseFillThreads:     1,
@@ -116,6 +93,9 @@ func (cfg *RuntimeConfig) UnmarshalJSON(data []byte) error {
 	*cfg = RuntimeConfig(alias)
 
 	for key := range runtimeConfigJSONKeys() {
+		delete(raw, key)
+	}
+	for key := range legacyPrivateRuntimeConfigJSONKeys() {
 		delete(raw, key)
 	}
 	if len(raw) == 0 {
@@ -157,13 +137,7 @@ func (cfg RuntimeConfig) MarshalJSON() ([]byte, error) {
 }
 
 func (cfg RuntimeConfig) hasAIConfig() bool {
-	return cfg.AIMode != "" ||
-		cfg.AIProvider != "" ||
-		cfg.AIAPIKey != "" ||
-		cfg.AIBaseURL != "" ||
-		cfg.AIAPIProtocol != "" ||
-		cfg.AIModel != "" ||
-		cfg.AISystemPrompt != ""
+	return false
 }
 
 func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.RawMessage {
@@ -171,7 +145,7 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 	for key, value := range raw {
 		normalized[key] = value
 	}
-	for _, key := range []string{"target", "threads", "random_ip_user_id", "random_ip_lease_minute"} {
+	for _, key := range []string{"target", "threads"} {
 		if value, ok := raw[key]; ok {
 			normalized[key] = rawConfigInt(value, 0)
 		}
@@ -182,7 +156,7 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 	if value, ok := raw["reverse_fill_threads"]; ok {
 		normalized["reverse_fill_threads"] = rawMinInt(value, 1, 1)
 	}
-	for _, key := range []string{"random_ip_enabled", "random_ua_enabled", "fail_stop_enabled", "pause_on_aliyun_captcha", "reliability_mode_enabled", "reverse_fill_enabled"} {
+	for _, key := range []string{"random_ua_enabled", "reliability_mode_enabled", "reverse_fill_enabled"} {
 		if value, ok := raw[key]; ok {
 			normalized[key] = rawConfigBool(value, false)
 		}
@@ -190,13 +164,10 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 	if value, ok := raw["psycho_target_alpha"]; ok {
 		normalized["psycho_target_alpha"] = rawConfigFloat(value, 0)
 	}
-	for _, key := range []string{"url", "survey_title", "survey_provider", "proxy_source", "custom_proxy_api", "random_ip_device_id", "ip_extract_endpoint", "ai_mode", "ai_provider", "ai_api_key", "ai_base_url", "ai_api_protocol", "ai_model", "ai_system_prompt", "reverse_fill_source_path", "reverse_fill_format"} {
+	for _, key := range []string{"url", "survey_title", "survey_provider", "reverse_fill_source_path", "reverse_fill_format"} {
 		if value, ok := raw[key]; ok {
 			normalized[key] = rawString(value)
 		}
-	}
-	if value, ok := raw["proxy_area_code"]; ok {
-		normalized["proxy_area_code"] = rawNullableString(value)
 	}
 	if value, ok := raw["submit_interval"]; ok {
 		normalized["submit_interval"] = rawIntPair(value, [2]int{})
@@ -212,12 +183,6 @@ func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.
 	}
 	if value, ok := raw["random_ua_keys"]; ok {
 		normalized["random_ua_keys"] = rawRandomUAKeys(value)
-	}
-	if value, ok := raw["proxy_source"]; ok {
-		normalized["proxy_source"] = rawProxySource(value)
-	}
-	if value, ok := raw["ai_mode"]; ok {
-		normalized["ai_mode"] = rawAIMode(value)
 	}
 	if value, ok := raw["reverse_fill_format"]; ok {
 		normalized["reverse_fill_format"] = rawReverseFillFormat(value)
@@ -348,26 +313,6 @@ func rawRandomUARatios(raw json.RawMessage) json.RawMessage {
 		"pc":     configToInt(source["pc"], 34),
 	}
 	return configMustJSON(result)
-}
-
-func rawProxySource(raw json.RawMessage) json.RawMessage {
-	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
-	switch value {
-	case "default", "benefit", "custom":
-		return configMustJSON(value)
-	default:
-		return configMustJSON("default")
-	}
-}
-
-func rawAIMode(raw json.RawMessage) json.RawMessage {
-	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
-	switch value {
-	case "free", "provider":
-		return configMustJSON(value)
-	default:
-		return configMustJSON("free")
-	}
 }
 
 func rawReverseFillFormat(raw json.RawMessage) json.RawMessage {
@@ -511,6 +456,30 @@ func runtimeConfigJSONKeys() map[string]struct{} {
 		result[name] = struct{}{}
 	}
 	return result
+}
+
+func legacyPrivateRuntimeConfigJSONKeys() map[string]struct{} {
+	return map[string]struct{}{
+		"random_ip_enabled":       {},
+		"proxy_source":            {},
+		"custom_proxy_api":        {},
+		"proxy_area_code":         {},
+		"random_ip_user_id":       {},
+		"random_ip_device_id":     {},
+		"ip_extract_endpoint":     {},
+		"random_ip_lease_minute":  {},
+		"fail_stop_enabled":       {},
+		"pause_on_aliyun_captcha": {},
+		"ai_mode":                 {},
+		"ai_provider":             {},
+		"ai_api_key":              {},
+		"ai_base_url":             {},
+		"ai_api_protocol":         {},
+		"ai_model":                {},
+		"ai_system_prompt":        {},
+		"ai_free_endpoint":        {},
+		"random_ip_session_path":  {},
+	}
 }
 
 // Provider constants

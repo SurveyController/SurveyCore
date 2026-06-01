@@ -1,9 +1,6 @@
 package tasks
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,45 +11,6 @@ import (
 
 	"github.com/SurveyController/SurveyCore/internal/models"
 )
-
-func TestNewProxyPoolFromRuntimeConfigUsesOfficialRandomIPConfig(t *testing.T) {
-	var gotDeviceID string
-	var gotBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotDeviceID = r.Header.Get("X-Device-ID")
-		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
-			t.Fatalf("decode request body: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"items":[{"host":"1.2.3.4","port":"8080","account":"u","password":"p","expire_at":"2099-01-01T00:00:00Z"}]}`))
-	}))
-	defer server.Close()
-
-	area := "110000"
-	cfg := &models.RuntimeConfig{
-		ProxySource:         "default",
-		ProxyAreaCode:       &area,
-		RandomIPUserID:      77,
-		RandomIPDeviceID:    "device-77",
-		IPExtractEndpoint:   server.URL,
-		RandomIPLeaseMinute: 3,
-	}
-
-	pool := NewProxyPoolFromRuntimeConfig(cfg)
-	leases, err := pool.FetchBatch(1)
-	if err != nil {
-		t.Fatalf("FetchBatch failed: %v", err)
-	}
-	if len(leases) != 1 || leases[0].Address != "u:p@1.2.3.4:8080" {
-		t.Fatalf("leases = %#v, want one configured official lease", leases)
-	}
-	if gotDeviceID != "device-77" {
-		t.Fatalf("device header = %q, want device-77", gotDeviceID)
-	}
-	if gotBody["user_id"] != float64(77) || gotBody["minute"] != float64(3) || gotBody["area"] != "110000" {
-		t.Fatalf("request body = %#v, want configured user/minute/area", gotBody)
-	}
-}
 
 func TestStorePersistsTaskAndLogs(t *testing.T) {
 	dir := t.TempDir()
@@ -192,7 +150,7 @@ func TestCloneTaskSnapshotsExecutionState(t *testing.T) {
 func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
 	state := runstate.NewExecutionState()
 	state.IncrementSuccess()
-	state.MarkTerminalStop("device_quota", "device_quota_limit", "设备额度不足")
+	state.MarkTerminalStop("fill_failed", "fill_failed", "填写失败")
 
 	task := &TaskRecord{
 		ID:     "task-1",
@@ -206,8 +164,8 @@ func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
 	if cloned.Progress == nil || cloned.Progress.Target != 4 || cloned.Progress.Success != 1 || cloned.Progress.Percent != 0.25 {
 		t.Fatalf("progress = %#v, want stable summary", cloned.Progress)
 	}
-	if cloned.ErrorCode != "device_quota_limit" || cloned.FailureReason != "device_quota_limit" || cloned.TerminalStopCategory != "device_quota" {
-		t.Fatalf("error fields = %q/%q/%q, want standardized device quota failure", cloned.ErrorCode, cloned.FailureReason, cloned.TerminalStopCategory)
+	if cloned.ErrorCode != "fill_failed" || cloned.FailureReason != "fill_failed" || cloned.TerminalStopCategory != "fill_failed" {
+		t.Fatalf("error fields = %q/%q/%q, want standardized fill failure", cloned.ErrorCode, cloned.FailureReason, cloned.TerminalStopCategory)
 	}
 }
 

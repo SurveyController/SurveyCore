@@ -50,33 +50,19 @@ type ExecutionConfig struct {
 	JointPsychometricAnswerPlan    any                                  `json:"joint_psychometric_answer_plan,omitempty"`
 
 	PsychoTargetAlpha float64 `json:"psycho_target_alpha"`
-	AIMode            string  `json:"ai_mode,omitempty"`
-	AIProvider        string  `json:"ai_provider,omitempty"`
-	AIAPIKey          string  `json:"ai_api_key,omitempty"`
-	AIBaseURL         string  `json:"ai_base_url,omitempty"`
-	AIAPIProtocol     string  `json:"ai_api_protocol,omitempty"`
-	AIModel           string  `json:"ai_model,omitempty"`
-	AISystemPrompt    string  `json:"ai_system_prompt,omitempty"`
+	AIAPIKey          string  `json:"-"`
+	AIBaseURL         string  `json:"-"`
+	AIModel           string  `json:"-"`
 
-	NumThreads        int  `json:"num_threads"`
-	TargetNum         int  `json:"target_num"`
-	FailThreshold     int  `json:"fail_threshold"`
-	StopOnFailEnabled bool `json:"stop_on_fail_enabled"`
+	NumThreads    int `json:"num_threads"`
+	TargetNum     int `json:"target_num"`
+	FailThreshold int `json:"fail_threshold"`
 
 	SubmitIntervalRangeSeconds [2]int   `json:"submit_interval_range_seconds"`
 	AnswerDurationRangeSeconds [2]int   `json:"answer_duration_range_seconds"`
 	AnswerDatetimeWindowMS     [2]int64 `json:"answer_datetime_window_ms,omitempty"`
 
-	RandomProxyIPEnabled   bool           `json:"random_proxy_ip_enabled"`
-	ProxySource            string         `json:"proxy_source"`
-	CustomProxyAPI         string         `json:"custom_proxy_api,omitempty"`
-	ProxyAreaCode          string         `json:"proxy_area_code,omitempty"`
-	RandomIPUserID         int            `json:"random_ip_user_id,omitempty"`
-	RandomIPDeviceID       string         `json:"random_ip_device_id,omitempty"`
-	IPExtractEndpoint      string         `json:"ip_extract_endpoint,omitempty"`
-	RandomIPLeaseMinute    int            `json:"random_ip_lease_minute,omitempty"`
 	RandomUserAgentEnabled bool           `json:"random_user_agent_enabled"`
 	RandomUserAgentKeys    []string       `json:"random_user_agent_keys,omitempty"`
 	UserAgentRatios        map[string]int `json:"user_agent_ratios"`
-	PauseOnAliyunCaptcha   bool           `json:"pause_on_aliyun_captcha"`
 }

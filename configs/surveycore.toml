@@ -1,11 +1,13 @@
 [server]
+# 本地 API 监听端口
 port = 19178
 
 [storage]
+# 任务和日志数据库路径
 db_path = "data/surveycore.db"
 
 [ai]
-# 服务端私有 AI 填空默认配置。请求体中的 AI 配置非空时优先使用请求值。
+# 服务端私有 AI 填空配置，不从 HTTP 请求体传入
 base_url = "https://api.deepseek.com/v1"
 model = "deepseek-chat"
 api_key = ""

@@ -27,22 +27,15 @@ type ThreadProgressState struct {
 type ExecutionState struct {
 	Config *execution.ExecutionConfig `json:"-"`
 
-	CurNum                    int    `json:"cur_num"`
-	CurFail                   int    `json:"cur_fail"`
-	ProxyUnavailableFailCount int    `json:"proxy_unavailable_fail_count"`
-	DeviceQuotaFailCount      int    `json:"device_quota_fail_count"`
-	TerminalStopCategory      string `json:"terminal_stop_category"`
-	TerminalFailureReason     string `json:"terminal_failure_reason"`
-	TerminalStopMessage       string `json:"terminal_stop_message"`
+	CurNum                int    `json:"cur_num"`
+	CurFail               int    `json:"cur_fail"`
+	TerminalStopCategory  string `json:"terminal_stop_category"`
+	TerminalFailureReason string `json:"terminal_failure_reason"`
+	TerminalStopMessage   string `json:"terminal_stop_message"`
 
 	ThreadProgress     map[string]*ThreadProgressState `json:"thread_progress"`
 	InFlight           int                             `json:"-"`
 	ReverseFillRuntime *domain.ReverseFillRuntimeState `json:"-"`
-
-	ProxyWaitingThreads      int                          `json:"proxy_waiting_threads"`
-	ProxyInUseByThread       map[string]domain.ProxyLease `json:"proxy_in_use_by_thread"`
-	SuccessfulProxyAddresses map[string]bool              `json:"successful_proxy_addresses"`
-	ProxyCooldownUntil       map[string]float64           `json:"proxy_cooldown_until"`
 
 	StopChan   chan struct{} `json:"-"`
 	PauseChan  chan struct{} `json:"-"`
@@ -55,13 +48,10 @@ type ExecutionState struct {
 // NewExecutionState creates a new ExecutionState with initialized maps.
 func NewExecutionState() *ExecutionState {
 	return &ExecutionState{
-		ThreadProgress:           make(map[string]*ThreadProgressState),
-		ProxyInUseByThread:       make(map[string]domain.ProxyLease),
-		SuccessfulProxyAddresses: make(map[string]bool),
-		ProxyCooldownUntil:       make(map[string]float64),
-		StopChan:                 make(chan struct{}),
-		PauseChan:                make(chan struct{}, 1),
-		ResumeChan:               make(chan struct{}, 1),
+		ThreadProgress: make(map[string]*ThreadProgressState),
+		StopChan:       make(chan struct{}),
+		PauseChan:      make(chan struct{}, 1),
+		ResumeChan:     make(chan struct{}, 1),
 	}
 }
 
@@ -74,18 +64,12 @@ func (s *ExecutionState) Snapshot() *ExecutionState {
 	defer s.mu.RUnlock()
 
 	copy := &ExecutionState{
-		CurNum:                    s.CurNum,
-		CurFail:                   s.CurFail,
-		ProxyUnavailableFailCount: s.ProxyUnavailableFailCount,
-		DeviceQuotaFailCount:      s.DeviceQuotaFailCount,
-		TerminalStopCategory:      s.TerminalStopCategory,
-		TerminalFailureReason:     s.TerminalFailureReason,
-		TerminalStopMessage:       s.TerminalStopMessage,
-		ThreadProgress:            make(map[string]*ThreadProgressState, len(s.ThreadProgress)),
-		ProxyInUseByThread:        make(map[string]domain.ProxyLease, len(s.ProxyInUseByThread)),
-		SuccessfulProxyAddresses:  make(map[string]bool, len(s.SuccessfulProxyAddresses)),
-		ProxyCooldownUntil:        make(map[string]float64, len(s.ProxyCooldownUntil)),
-		ProxyWaitingThreads:       s.ProxyWaitingThreads,
+		CurNum:                s.CurNum,
+		CurFail:               s.CurFail,
+		TerminalStopCategory:  s.TerminalStopCategory,
+		TerminalFailureReason: s.TerminalFailureReason,
+		TerminalStopMessage:   s.TerminalStopMessage,
+		ThreadProgress:        make(map[string]*ThreadProgressState, len(s.ThreadProgress)),
 	}
 	for key, value := range s.ThreadProgress {
 		if value == nil {
@@ -94,15 +78,6 @@ func (s *ExecutionState) Snapshot() *ExecutionState {
 		}
 		threadCopy := *value
 		copy.ThreadProgress[key] = &threadCopy
-	}
-	for key, value := range s.ProxyInUseByThread {
-		copy.ProxyInUseByThread[key] = value
-	}
-	for key, value := range s.SuccessfulProxyAddresses {
-		copy.SuccessfulProxyAddresses[key] = value
-	}
-	for key, value := range s.ProxyCooldownUntil {
-		copy.ProxyCooldownUntil[key] = value
 	}
 	return copy
 }

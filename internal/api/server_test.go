@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/SurveyController/SurveyCore/internal/models"
-	"github.com/SurveyController/SurveyCore/internal/network/proxy"
 	"github.com/SurveyController/SurveyCore/internal/tasks"
 )
 
@@ -42,13 +41,14 @@ func TestCreateTaskReturnsTaskID(t *testing.T) {
 	}
 }
 
-func TestCreateTaskAcceptsPythonConfigExtraFields(t *testing.T) {
+func TestCreateTaskDropsPrivateLegacyFields(t *testing.T) {
 	server := newTestServer(t)
 	reqBody := `{
 		"url":"https://www.wjx.cn/vm/test.aspx",
 		"target":1,
-		"_ai_config_present":true,
-		"python_only_future_field":"ignored"
+		"proxy_source":"default",
+		"random_ip_user_id":88,
+		"random_ip_device_id":"device-88"
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
 	rec := httptest.NewRecorder()
@@ -56,7 +56,20 @@ func TestCreateTaskAcceptsPythonConfigExtraFields(t *testing.T) {
 	server.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("status = %d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	task, ok := server.manager.Get(created["task_id"].(string))
+	if !ok || task.Config == nil {
+		t.Fatalf("created task not found")
+	}
+	for _, field := range []string{"proxy_source", "random_ip_user_id", "random_ip_device_id"} {
+		if _, exists := task.Config.ExtraFields[field]; exists {
+			t.Fatalf("legacy private field %q was preserved in extras: %#v", field, task.Config.ExtraFields)
+		}
 	}
 }
 
@@ -111,6 +124,65 @@ func TestCreateTaskRejectsInvalidJSONWithStructuredError(t *testing.T) {
 	apiErr := decodeAPIError(t, rec)
 	if apiErr.Code != "invalid_json" || apiErr.Message == "" || apiErr.Detail == "" {
 		t.Fatalf("error = %#v, want invalid_json with message and detail", apiErr)
+	}
+}
+
+func TestCreateConfigOmitsRemovedSDKFields(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(`{"url":""}`))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	removedFields := []string{
+		"random_ip_enabled",
+		"proxy_source",
+		"custom_proxy_api",
+		"proxy_area_code",
+		"random_ip_user_id",
+		"random_ip_device_id",
+		"ip_extract_endpoint",
+		"random_ip_lease_minute",
+		"fail_stop_enabled",
+		"pause_on_aliyun_captcha",
+		"ai_mode",
+		"ai_provider",
+		"ai_api_key",
+		"ai_base_url",
+		"ai_api_protocol",
+		"ai_model",
+		"ai_system_prompt",
+	}
+	for _, field := range removedFields {
+		if _, ok := body[field]; ok {
+			t.Fatalf("response contains removed field %q: %s", field, rec.Body.String())
+		}
+	}
+}
+
+func TestCreateTaskAcceptsQuestionAIEnabled(t *testing.T) {
+	server := newTestServer(t)
+	reqBody := `{
+		"url":"https://www.wjx.cn/vm/test.aspx",
+		"target":1,
+		"question_entries":[
+			{"question_type":"text","probabilities":[1],"texts":["fallback"],"ai_enabled":true}
+		]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s, want 202", rec.Code, rec.Body.String())
 	}
 }
 
@@ -183,7 +255,6 @@ func TestAITestEndpointReturnsPreview(t *testing.T) {
 
 	server := newTestServer(t)
 	reqBody := `{
-		"ai_mode":"provider",
 		"ai_provider":"custom",
 		"ai_api_key":"test-key",
 		"ai_base_url":"` + aiServer.URL + `/v1",
@@ -200,84 +271,6 @@ func TestAITestEndpointReturnsPreview(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "连接成功") {
 		t.Fatalf("response body = %s, want AI preview", rec.Body.String())
-	}
-}
-
-func TestAITestEndpointSupportsFreeAIService(t *testing.T) {
-	var gotDeviceID string
-	aiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotDeviceID = r.Header.Get("X-Device-ID")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"answers":["免费连接成功"]}`))
-	}))
-	defer aiServer.Close()
-
-	server := newTestServer(t)
-	reqBody := `{
-		"ai_mode":"free",
-		"ai_free_endpoint":"` + aiServer.URL + `",
-		"random_ip_user_id":88,
-		"random_ip_device_id":"device-88"
-	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/ai/test", strings.NewReader(reqBody))
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	if gotDeviceID != "device-88" {
-		t.Fatalf("X-Device-ID = %q, want device-88", gotDeviceID)
-	}
-	if !strings.Contains(rec.Body.String(), "免费连接成功") {
-		t.Fatalf("response body = %s, want free AI preview", rec.Body.String())
-	}
-}
-
-func TestRandomIPTrialEndpointReturnsSession(t *testing.T) {
-	randomIPServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Device-ID") == "" {
-			t.Fatal("missing X-Device-ID")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"user_id":99,"remaining_quota":8,"total_quota":10,"used_quota":2}`))
-	}))
-	defer randomIPServer.Close()
-
-	server := newTestServer(t)
-	server.randomIP = proxy.NewRandomIPService(filepath.Join(t.TempDir(), "random-ip.json"), proxy.RandomIPEndpoints{TrialEndpoint: randomIPServer.URL})
-	req := httptest.NewRequest(http.MethodPost, "/api/random-ip/trial", nil)
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
-	}
-	var snapshot proxy.RandomIPSnapshot
-	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	if !snapshot.Authenticated || snapshot.UserID != 99 || snapshot.RemainingQuota != 8 {
-		t.Fatalf("snapshot = %#v, want authenticated random IP session", snapshot)
-	}
-}
-
-func TestRandomIPSyncRequiresSession(t *testing.T) {
-	server := newTestServer(t)
-	server.randomIP = proxy.NewRandomIPService(filepath.Join(t.TempDir(), "random-ip.json"), proxy.RandomIPEndpoints{})
-	req := httptest.NewRequest(http.MethodPost, "/api/random-ip/quota/sync", nil)
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d body=%s, want 401", rec.Code, rec.Body.String())
-	}
-	apiErr := decodeAPIError(t, rec)
-	if apiErr.Code != "random_ip_not_authenticated" {
-		t.Fatalf("code = %q, want random_ip_not_authenticated", apiErr.Code)
 	}
 }
 
@@ -342,7 +335,7 @@ func TestImportConfigAcceptsPythonCompatibleJSON(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Target != 2 || cfg.Threads != 1 || cfg.AIMode != "free" {
+	if cfg.Target != 2 || cfg.Threads != 1 {
 		t.Fatalf("config = %#v, want imported target with defaults", cfg)
 	}
 	var raw map[string]any

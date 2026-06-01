@@ -15,14 +15,6 @@ func TestRuntimeConfigSerialization(t *testing.T) {
 	cfg.URL = "https://www.wjx.cn/vm/test.aspx"
 	cfg.Target = 10
 	cfg.Threads = 3
-	area := "110000"
-	cfg.RandomIPEnabled = true
-	cfg.ProxySource = "default"
-	cfg.ProxyAreaCode = &area
-	cfg.RandomIPUserID = 77
-	cfg.RandomIPDeviceID = "device-77"
-	cfg.IPExtractEndpoint = "https://proxy.example.test/extract"
-	cfg.RandomIPLeaseMinute = 3
 
 	data, err := models.SerializeRuntimeConfig(&cfg)
 	if err != nil {
@@ -42,15 +34,6 @@ func TestRuntimeConfigSerialization(t *testing.T) {
 	}
 	if parsed.Threads != cfg.Threads {
 		t.Errorf("Threads mismatch: got %d, want %d", parsed.Threads, cfg.Threads)
-	}
-	if !parsed.RandomIPEnabled || parsed.ProxyAreaCode == nil || *parsed.ProxyAreaCode != area {
-		t.Errorf("random IP area mismatch: got enabled=%v area=%v", parsed.RandomIPEnabled, parsed.ProxyAreaCode)
-	}
-	if parsed.RandomIPUserID != 77 || parsed.RandomIPDeviceID != "device-77" {
-		t.Errorf("random IP credentials mismatch: got %d/%q", parsed.RandomIPUserID, parsed.RandomIPDeviceID)
-	}
-	if parsed.IPExtractEndpoint != cfg.IPExtractEndpoint || parsed.RandomIPLeaseMinute != 3 {
-		t.Errorf("random IP endpoint/minute mismatch: got %q/%d", parsed.IPExtractEndpoint, parsed.RandomIPLeaseMinute)
 	}
 }
 
@@ -121,24 +104,6 @@ func TestProxyLease(t *testing.T) {
 
 	if !lease.HasSufficientTTL(60) {
 		t.Error("Lease with 0 ExpireTS should have sufficient TTL")
-	}
-}
-
-func TestRandomIPSession(t *testing.T) {
-	session := models.RandomIPSession{
-		UserID:     12345,
-		QuotaKnown: true,
-		TotalQuota: 100,
-		UsedQuota:  50,
-	}
-
-	if session.IsQuotaExhausted() {
-		t.Error("Session with 50/100 quota should not be exhausted")
-	}
-
-	session.UsedQuota = 100
-	if !session.IsQuotaExhausted() {
-		t.Error("Session with 100/100 quota should be exhausted")
 	}
 }
 
@@ -222,13 +187,11 @@ func TestMakeProviderQuestionKey(t *testing.T) {
 }
 
 func TestJSONCompatibility(t *testing.T) {
-	// Test that our structs can parse JSON that the Python version would produce
 	jsonStr := `{
 		"url": "https://www.wjx.cn/vm/test.aspx",
 		"survey_provider": "wjx",
 		"target": 10,
 		"threads": 3,
-		"random_ip_enabled": true,
 		"question_entries": [
 			{
 				"question_type": "single",
@@ -248,9 +211,6 @@ func TestJSONCompatibility(t *testing.T) {
 	}
 	if cfg.Target != 10 {
 		t.Errorf("Target = %d", cfg.Target)
-	}
-	if !cfg.RandomIPEnabled {
-		t.Error("RandomIPEnabled should be true")
 	}
 	if len(cfg.QuestionEntries) != 1 {
 		t.Fatalf("QuestionEntries length = %d, want 1", len(cfg.QuestionEntries))

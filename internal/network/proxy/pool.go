@@ -11,56 +11,15 @@ import (
 
 // Pool manages a pool of proxy leases.
 type Pool struct {
-	mu              sync.RWMutex
-	leases          []models.ProxyLease
-	cooldown        map[string]time.Time // address -> cooldown until
-	source          string
-	apiURL          string
-	officialOptions officialOptions
-}
-
-type officialOptions struct {
-	Endpoint string
-	UserID   int
-	DeviceID string
-	AreaCode string
-	Minute   int
-	Pool     string
+	mu       sync.RWMutex
+	leases   []models.ProxyLease
+	cooldown map[string]time.Time // address -> cooldown until
+	source   string
+	apiURL   string
 }
 
 // Option configures a proxy pool.
 type Option func(*Pool)
-
-// WithOfficialEndpoint overrides the official random-IP endpoint.
-func WithOfficialEndpoint(endpoint string) Option {
-	return func(p *Pool) {
-		p.officialOptions.Endpoint = strings.TrimSpace(endpoint)
-	}
-}
-
-// WithOfficialCredentials sets official random-IP session credentials.
-func WithOfficialCredentials(userID int, deviceID string) Option {
-	return func(p *Pool) {
-		p.officialOptions.UserID = userID
-		p.officialOptions.DeviceID = strings.TrimSpace(deviceID)
-	}
-}
-
-// WithOfficialAreaCode sets the official random-IP area code.
-func WithOfficialAreaCode(areaCode string) Option {
-	return func(p *Pool) {
-		p.officialOptions.AreaCode = normalizeAreaCode(areaCode)
-	}
-}
-
-// WithOfficialMinute sets the official random-IP lease minute.
-func WithOfficialMinute(minute int) Option {
-	return func(p *Pool) {
-		if isAllowedMinute(minute) {
-			p.officialOptions.Minute = minute
-		}
-	}
-}
 
 // NewPool creates a new proxy pool.
 func NewPool(source, apiURL string, opts ...Option) *Pool {
@@ -69,24 +28,11 @@ func NewPool(source, apiURL string, opts ...Option) *Pool {
 		cooldown: make(map[string]time.Time),
 		source:   source,
 		apiURL:   apiURL,
-		officialOptions: officialOptions{
-			Endpoint: defaultOfficialEndpoint(),
-			UserID:   officialUserIDFromEnv(),
-			DeviceID: firstEnv("WJX_RANDOM_IP_DEVICE_ID", "RANDOM_IP_DEVICE_ID"),
-			AreaCode: normalizeAreaCode(firstEnv("WJX_PROXY_AREA_CODE", "PROXY_AREA_CODE")),
-			Minute:   1,
-		},
 	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(p)
 		}
-	}
-	if p.officialOptions.Pool == "" {
-		p.officialOptions.Pool = resolveOfficialPool(p.officialOptions.AreaCode)
-	}
-	if p.officialOptions.Minute <= 0 {
-		p.officialOptions.Minute = 1
 	}
 	return p
 }
@@ -133,12 +79,9 @@ func (p *Pool) FetchBatch(count int) ([]models.ProxyLease, error) {
 	p.mu.RLock()
 	source := p.source
 	apiURL := p.apiURL
-	officialOpts := p.officialOptions
 	p.mu.RUnlock()
 
 	switch source {
-	case "default", "benefit":
-		return fetchFromOfficial(source, count, officialOpts)
 	case "custom":
 		if apiURL == "" {
 			return nil, fmt.Errorf("自定义代理 API URL 未配置")

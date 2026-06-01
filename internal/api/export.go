@@ -47,12 +47,7 @@ type taskReportConfig struct {
 	SurveyProvider     string `json:"survey_provider,omitempty"`
 	Target             int    `json:"target,omitempty"`
 	Threads            int    `json:"threads,omitempty"`
-	RandomIPEnabled    bool   `json:"random_ip_enabled,omitempty"`
-	ProxySource        string `json:"proxy_source,omitempty"`
 	RandomUAEnabled    bool   `json:"random_ua_enabled,omitempty"`
-	AIMode             string `json:"ai_mode,omitempty"`
-	AIProvider         string `json:"ai_provider,omitempty"`
-	AIAPIProtocol      string `json:"ai_api_protocol,omitempty"`
 	ReverseFillEnabled bool   `json:"reverse_fill_enabled,omitempty"`
 }
 
@@ -213,12 +208,7 @@ func summarizeReportConfig(cfg *models.RuntimeConfig) taskReportConfig {
 		SurveyProvider:     cfg.SurveyProvider,
 		Target:             cfg.Target,
 		Threads:            cfg.Threads,
-		RandomIPEnabled:    cfg.RandomIPEnabled,
-		ProxySource:        cfg.ProxySource,
 		RandomUAEnabled:    cfg.RandomUAEnabled,
-		AIMode:             cfg.AIMode,
-		AIProvider:         cfg.AIProvider,
-		AIAPIProtocol:      cfg.AIAPIProtocol,
 		ReverseFillEnabled: cfg.ReverseFillEnabled,
 	}
 }

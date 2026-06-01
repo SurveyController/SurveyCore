@@ -33,7 +33,7 @@ func TestLiveRuntimeRegression(t *testing.T) {
 	defer cancel()
 
 	registry := providers.NewRegistry()
-	runner := engine.NewEngine(registry, nil, nil)
+	runner := engine.NewEngine(registry, nil)
 
 	def, err := runner.ParseSurvey(ctx, surveyURL)
 	if err != nil {
@@ -50,9 +50,7 @@ func TestLiveRuntimeRegression(t *testing.T) {
 		Threads:                1,
 		SubmitInterval:         [2]int{0, 0},
 		AnswerDuration:         [2]int{0, 0},
-		RandomIPEnabled:        false,
 		RandomUAEnabled:        false,
-		FailStopEnabled:        true,
 		ReliabilityModeEnabled: true,
 		ReverseFillEnabled:     false,
 		QuestionEntries:        config.BuildDefaultQuestionEntries(questions, nil),
@@ -67,7 +65,6 @@ func TestLiveRuntimeRegression(t *testing.T) {
 	execCfg.NumThreads = 1
 	execCfg.SubmitIntervalRangeSeconds = [2]int{0, 0}
 	execCfg.AnswerDurationRangeSeconds = [2]int{0, 0}
-	execCfg.RandomProxyIPEnabled = false
 	execCfg.RandomUserAgentEnabled = false
 
 	state := runstate.NewExecutionState()

@@ -3,6 +3,7 @@ module github.com/SurveyController/SurveyCore
 go 1.26.3
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/makiuchi-d/gozxing v0.1.1
 	github.com/xuri/excelize/v2 v2.10.1
