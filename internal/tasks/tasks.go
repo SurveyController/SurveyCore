@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -52,6 +53,9 @@ func (m *TaskManager) Load() []error {
 			task.Status = TaskInterrupted
 			task.FinishedAt = &now
 			task.Error = "服务重启，任务已中断"
+			task.ErrorCode = "task_interrupted"
+			task.FailureReason = task.Error
+			task.TerminalStopCategory = "task_interrupted"
 			errs = appendSaveErr(errs, m.store.SaveTask(task))
 		}
 		m.tasks[task.ID] = task
@@ -139,6 +143,9 @@ func (m *TaskManager) Stop(id string) (*TaskRecord, error) {
 	}
 	task.Status = TaskStopped
 	task.StopMessage = "用户请求停止"
+	task.ErrorCode = "user_stopped"
+	task.FailureReason = task.StopMessage
+	task.TerminalStopCategory = "user_stopped"
 	if task.State != nil {
 		task.State.SignalStop()
 	}
@@ -222,16 +229,27 @@ func (m *TaskManager) run(ctx context.Context, id string) {
 	current.State = state
 	current.FinishedAt = &finished
 	delete(m.runtimes, id)
+	category, reason, message := terminalSnapshot(state)
+	current.TerminalStopCategory = category
 	if current.Status == TaskStopped || ctx.Err() != nil {
 		current.Status = TaskStopped
 		if current.StopMessage == "" {
 			current.StopMessage = "任务已停止"
 		}
+		if current.TerminalStopCategory == "" {
+			current.TerminalStopCategory = "user_stopped"
+		}
+		current.ErrorCode = "user_stopped"
+		current.FailureReason = firstNonEmpty(reason, message, current.StopMessage)
 	} else if err != nil {
 		current.Status = TaskFailed
 		current.Error = err.Error()
+		current.ErrorCode = classifyTaskErrorCode(category, reason, err)
+		current.FailureReason = firstNonEmpty(reason, message, err.Error())
 	} else {
 		current.Status = TaskSucceeded
+		current.ErrorCode = ""
+		current.FailureReason = ""
 	}
 	snapshot := cloneTask(current)
 	m.mu.Unlock()
@@ -350,6 +368,7 @@ func (m *TaskManager) appendLog(id string, entry TaskLog) {
 }
 
 func (m *TaskManager) saveTask(task *TaskRecord) {
+	syncTaskDerivedFields(task)
 	if err := m.store.SaveTask(task); err != nil {
 		logging.ErrorFields("保存任务状态失败", logging.F("task_id", task.ID), logging.F("error", err))
 	}
@@ -411,7 +430,136 @@ func cloneTask(task *TaskRecord) *TaskRecord {
 	copy := *task
 	copy.Config = cloneRuntimeConfig(task.Config)
 	copy.State = task.State.Snapshot()
+	syncTaskDerivedFields(&copy)
 	return &copy
+}
+
+func syncTaskDerivedFields(task *TaskRecord) {
+	if task == nil {
+		return
+	}
+	task.Progress = buildTaskProgress(task)
+	if task.TerminalStopCategory == "" {
+		task.TerminalStopCategory = deriveTerminalStopCategory(task)
+	}
+	if task.FailureReason == "" {
+		task.FailureReason = deriveFailureReason(task)
+	}
+	if task.ErrorCode == "" {
+		task.ErrorCode = deriveErrorCode(task)
+	}
+}
+
+func buildTaskProgress(task *TaskRecord) *TaskProgress {
+	target := 0
+	if task.Config != nil {
+		target = task.Config.Target
+	}
+	success := 0
+	fail := 0
+	if task.State != nil {
+		success = task.State.GetCurNum()
+		fail = task.State.GetCurFail()
+	}
+	current := success
+	percent := 0.0
+	if target > 0 {
+		percent = float64(current) / float64(target)
+		if percent > 1 {
+			percent = 1
+		}
+	}
+	return &TaskProgress{
+		Current: current,
+		Target:  target,
+		Success: success,
+		Fail:    fail,
+		Percent: percent,
+	}
+}
+
+func deriveErrorCode(task *TaskRecord) string {
+	switch task.Status {
+	case TaskFailed:
+		return classifyTaskErrorCode(task.TerminalStopCategory, task.FailureReason, errors.New(task.Error))
+	case TaskStopped:
+		return "user_stopped"
+	case TaskInterrupted:
+		return "task_interrupted"
+	default:
+		return ""
+	}
+}
+
+func deriveTerminalStopCategory(task *TaskRecord) string {
+	if task.State == nil {
+		return ""
+	}
+	category, _, _ := task.State.GetTerminalStopSnapshot()
+	return category
+}
+
+func deriveFailureReason(task *TaskRecord) string {
+	if task.State != nil {
+		_, reason, message := task.State.GetTerminalStopSnapshot()
+		if reason != "" {
+			return reason
+		}
+		if message != "" {
+			return message
+		}
+	}
+	return firstNonEmpty(task.Error, task.StopMessage)
+}
+
+func terminalSnapshot(state *runstate.ExecutionState) (category, reason, message string) {
+	if state == nil {
+		return "", "", ""
+	}
+	return state.GetTerminalStopSnapshot()
+}
+
+func classifyTaskErrorCode(category, reason string, err error) string {
+	for _, value := range []string{reason, category} {
+		switch value {
+		case "proxy_unavailable",
+			"page_load_failed",
+			"fill_failed",
+			"submission_verification_required",
+			"survey_provider_unavailable",
+			"user_stopped",
+			"reverse_fill_exhausted",
+			"ai_unstable":
+			return value
+		case "fail_threshold",
+			"proxy_unavailable_threshold",
+			"submission_verification_threshold":
+			return value
+		}
+	}
+	if err == nil {
+		return "execution_error"
+	}
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "必须提供问卷链接"):
+		return "validation_error"
+	case strings.Contains(message, "解析问卷失败"):
+		return "survey_parse_failed"
+	case strings.Contains(message, "准备执行配置失败"):
+		return "config_error"
+	default:
+		return "execution_error"
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func DefaultTaskManager() (*TaskManager, error) {
@@ -419,12 +567,7 @@ func DefaultTaskManager() (*TaskManager, error) {
 }
 
 func DefaultTaskManagerWithStore(dbPath string) (*TaskManager, error) {
-	store := NewStore(dbPath)
-	if err := store.Init(); err != nil {
-		return nil, err
-	}
-	manager := NewTaskManager(store, providers.Default())
-	return manager, nil
+	return DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath, nil)
 }
 
 func DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath string, executionDefaults func(*execution.ExecutionConfig)) (*TaskManager, error) {

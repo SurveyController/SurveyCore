@@ -119,6 +119,62 @@ func TestAIClientRetriesTransientHTTPFailure(t *testing.T) {
 	}
 }
 
+func TestAIClientCallsResponsesAPI(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output_text":"连接成功"}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Provider: "custom",
+		APIKey:   "test-key",
+		BaseURL:  server.URL + "/v1",
+		Protocol: "responses",
+		Model:    "test-model",
+	})
+
+	got, err := client.GenerateAnswer("测试", "fill_blank", 1)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "连接成功" || gotPath != "/v1/responses" {
+		t.Fatalf("answer=%q path=%q, want responses answer and endpoint", got, gotPath)
+	}
+}
+
+func TestAIClientAutoFallsBackToResponsesOnEndpointMismatch(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output":[{"content":[{"type":"output_text","text":"fallback ok"}]}]}`))
+	}))
+	defer server.Close()
+
+	client := NewAIClient(AIConfig{
+		Provider: "custom",
+		APIKey:   "test-key",
+		BaseURL:  server.URL + "/v1",
+		Protocol: "auto",
+		Model:    "test-model",
+	})
+
+	got, err := client.GenerateAnswer("测试", "fill_blank", 1)
+	if err != nil {
+		t.Fatalf("GenerateAnswer returned error: %v", err)
+	}
+	if got != "fallback ok" || strings.Join(paths, ",") != "/v1/chat/completions,/v1/responses" {
+		t.Fatalf("answer=%q paths=%v, want chat then responses fallback", got, paths)
+	}
+}
+
 func TestAIClientClassifiesConfigErrorWithoutRetry(t *testing.T) {
 	client := NewAIClient(AIConfig{})
 

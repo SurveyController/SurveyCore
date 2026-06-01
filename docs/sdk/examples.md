@@ -42,6 +42,15 @@ async function createTaskFromURL(url) {
 async function getTask(taskID) {
   return requestJSON(`/api/tasks/${taskID}`);
 }
+
+async function exportTaskReport(taskID) {
+  const response = await fetch(`${baseURL}/api/tasks/${taskID}/report`);
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || data.error || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
 ```
 
 ## Python
@@ -75,6 +84,9 @@ task = request_json("POST", "/api/tasks", json=config)
 task_id = task["task_id"]
 
 print(task_id)
+
+report = request_json("GET", f"/api/tasks/{task_id}/report")
+print(report["status"])
 ```
 
 ## 上传二维码

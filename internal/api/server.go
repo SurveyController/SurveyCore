@@ -48,8 +48,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tasks/{id}", s.handleGetTask)
 	mux.HandleFunc("POST /api/tasks/{id}/stop", s.handleStopTask)
 	mux.HandleFunc("GET /api/tasks/{id}/logs", s.handleTaskLogs)
+	mux.HandleFunc("GET /api/tasks/{id}/config", s.handleExportTaskConfig)
+	mux.HandleFunc("GET /api/tasks/{id}/report", s.handleExportTaskReport)
 	mux.HandleFunc("POST /api/surveys/parse", s.handleParseSurvey)
 	mux.HandleFunc("POST /api/configs", s.handleCreateConfig)
+	mux.HandleFunc("POST /api/configs/import", s.handleImportConfig)
+	mux.HandleFunc("POST /api/configs/export", s.handleExportConfig)
+	mux.HandleFunc("POST /api/ai/test", s.handleTestAI)
 	mux.HandleFunc("POST /api/qrcode/decode", s.handleDecodeQR)
 	return loggingMiddleware(mux)
 }
@@ -63,12 +68,12 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
-	var cfg models.RuntimeConfig
-	if err := decodeStrictJSON(r, &cfg); err != nil {
+	cfg, err := readCompatibleRuntimeConfig(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "配置 JSON 请求体无效", err)
 		return
 	}
-	task, err := s.manager.Create(context.Background(), &cfg)
+	task, err := s.manager.Create(context.Background(), cfg)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", "任务配置无效", err)
 		return

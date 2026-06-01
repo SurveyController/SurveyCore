@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SurveyController/SurveyCore/internal/execution"
 	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
 
 	"github.com/SurveyController/SurveyCore/internal/models"
@@ -72,6 +73,21 @@ func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadRecord(t *testing.T) {
 	}
 }
 
+func TestTaskManagerAppliesExecutionDefaults(t *testing.T) {
+	manager := NewTaskManagerWithExecutionDefaults(nil, nil, func(cfg *execution.ExecutionConfig) {
+		cfg.AIBaseURL = "https://ai.example.test/v1"
+		cfg.AIModel = "test-model"
+		cfg.AIAPIKey = "test-key"
+	})
+	cfg := &execution.ExecutionConfig{}
+
+	manager.applyExecutionDefaults(cfg)
+
+	if cfg.AIBaseURL != "https://ai.example.test/v1" || cfg.AIModel != "test-model" || cfg.AIAPIKey != "test-key" {
+		t.Fatalf("execution defaults = %#v, want AI defaults", cfg)
+	}
+}
+
 func TestStoreLoadLogsUsesCursorPagination(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "surveycore.db"))
 	if err := store.Init(); err != nil {
@@ -129,4 +145,74 @@ func TestCloneTaskSnapshotsExecutionState(t *testing.T) {
 	if got != "运行中" {
 		t.Fatalf("cloned status = %q, want snapshot value", got)
 	}
+}
+
+func TestCloneTaskAddsProgressAndFailureFields(t *testing.T) {
+	state := runstate.NewExecutionState()
+	state.IncrementSuccess()
+	state.MarkTerminalStop("fill_failed", "fill_failed", "填写失败")
+
+	task := &TaskRecord{
+		ID:     "task-1",
+		Status: TaskFailed,
+		Config: &models.RuntimeConfig{Target: 4},
+		State:  state,
+		Error:  "执行失败",
+	}
+	cloned := cloneTask(task)
+
+	if cloned.Progress == nil || cloned.Progress.Target != 4 || cloned.Progress.Success != 1 || cloned.Progress.Percent != 0.25 {
+		t.Fatalf("progress = %#v, want stable summary", cloned.Progress)
+	}
+	if cloned.ErrorCode != "fill_failed" || cloned.FailureReason != "fill_failed" || cloned.TerminalStopCategory != "fill_failed" {
+		t.Fatalf("error fields = %q/%q/%q, want standardized fill failure", cloned.ErrorCode, cloned.FailureReason, cloned.TerminalStopCategory)
+	}
+}
+
+func TestTaskErrorCodeUsesTerminalCategoryAndErrorFallback(t *testing.T) {
+	tests := []struct {
+		name       string
+		task       *TaskRecord
+		wantCode   string
+		wantReason string
+	}{
+		{
+			name:       "submission verification",
+			task:       terminalTask("submission_verification", "submission_verification_required", "触发智能验证"),
+			wantCode:   "submission_verification_required",
+			wantReason: "submission_verification_required",
+		},
+		{
+			name:       "reverse fill exhausted category",
+			task:       terminalTask("reverse_fill_exhausted", "", "反填样本已耗尽"),
+			wantCode:   "reverse_fill_exhausted",
+			wantReason: "反填样本已耗尽",
+		},
+		{
+			name:       "parse failure fallback",
+			task:       &TaskRecord{ID: "task-1", Status: TaskFailed, Error: "解析问卷失败: upstream timeout"},
+			wantCode:   "survey_parse_failed",
+			wantReason: "解析问卷失败: upstream timeout",
+		},
+		{
+			name:       "config failure fallback",
+			task:       &TaskRecord{ID: "task-1", Status: TaskFailed, Error: "准备执行配置失败: answer window invalid"},
+			wantCode:   "config_error",
+			wantReason: "准备执行配置失败: answer window invalid",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloned := cloneTask(tt.task)
+			if cloned.ErrorCode != tt.wantCode || cloned.FailureReason != tt.wantReason {
+				t.Fatalf("error fields = %q/%q, want %q/%q", cloned.ErrorCode, cloned.FailureReason, tt.wantCode, tt.wantReason)
+			}
+		})
+	}
+}
+
+func terminalTask(category, reason, message string) *TaskRecord {
+	state := runstate.NewExecutionState()
+	state.MarkTerminalStop(category, reason, message)
+	return &TaskRecord{ID: "task-1", Status: TaskFailed, State: state, Error: message}
 }

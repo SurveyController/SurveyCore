@@ -5,7 +5,7 @@
 
 [SurveyController](https://github.com/SurveyController/SurveyController) 的核心 HTTP 提交 API 服务。
 
-负责解析问卷、创建提交任务、查询任务、停止任务、读取任务日志和解析二维码。
+负责解析问卷、创建提交任务、查询任务、停止任务、读取任务日志、导入导出配置、导出报告和解析二维码。
 
 > [!CAUTION]
 >
@@ -69,7 +69,7 @@ model = "deepseek-chat"
 api_key = ""
 ```
 
-服务固定监听 `127.0.0.1`，配置文件只改端口。
+服务固定监听 `127.0.0.1`，配置文件只改端口。AI 密钥和模型配置属于服务端私有配置，不从任务运行配置 JSON 中传入。
 
 ## 接口列表
 
@@ -80,11 +80,32 @@ api_key = ""
 | `GET` | `/api/tasks` | 查询任务列表。按创建时间倒序返回。 |
 | `GET` | `/api/tasks/{id}` | 查询单个任务详情。 |
 | `GET` | `/api/tasks/{id}/logs` | 分页读取指定任务日志。支持 `after` 游标和 `limit` 条数参数。 |
+| `GET` | `/api/tasks/{id}/config` | 导出指定任务的运行配置 JSON。 |
+| `GET` | `/api/tasks/{id}/report` | 导出指定任务报告。默认 JSON，`?format=csv` 导出日志表。 |
 | `POST` | `/api/surveys/parse` | 解析问卷链接，返回问卷标题、平台和题目结构。不会提交答案。 |
 | `POST` | `/api/configs` | 生成默认运行配置。传入问卷链接时会先解析问卷，再补全题目配置；不传链接时返回空模板。 |
-| `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。 |
+| `POST` | `/api/configs/import` | 导入并标准化 Python/Go 兼容运行配置 JSON。支持直接配置对象或 `{ "config": ... }` 包络。 |
+| `POST` | `/api/configs/export` | 导出标准化运行配置 JSON 文件。支持直接配置对象或 `{ "config": ... }` 包络。 |
+| `POST` | `/api/tasks` | 创建提交任务。任务异步运行，创建成功只表示已进入任务队列。支持直接配置对象或 `{ "config": ... }` 包络。 |
 | `POST` | `/api/tasks/{id}/stop` | 停止指定任务。任务不存在时返回错误。 |
+| `POST` | `/api/ai/test` | 测试传入的 AI 连接参数是否可用，成功时返回模型回复预览。 |
 | `POST` | `/api/qrcode/decode` | 从二维码图片中解析问卷链接。 |
+
+## 配置兼容
+
+`POST /api/tasks`、`POST /api/configs/import` 和 `POST /api/configs/export` 按兼容模式读取运行配置，既支持直接传运行配置对象，也支持 `{ "config": ... }` 包络。
+
+Go 会兼容 Python codec 的宽松输入形态：数字字段可接受字符串数字，布尔字段可接受 `true/false`、`1/0`、`yes/no`，`answer_duration` 可接受旧版单值或单元素数组并转换为上下浮动范围，`answer_datetime_window` 会按 `YYYY-MM-DD HH:MM:SS` 归一化。随机 UA 支持 Python 当前 preset 键 `wechat_android`、`mobile_android`、`pc_web`，同时兼容旧版 Go 键 `wechat`、`mobile`、`pc`。
+
+SurveyCore 不包含 SurveyController 原有的账号、额度、设备身份或私有服务接入逻辑。来自旧配置的此类字段会被视为遗留字段并忽略；二次开发者可在 SurveyCore 外层自行实现鉴权和业务服务。
+
+Go 生成或导出的配置默认带 `config_schema_version=6`。其他请求包络（例如 `/api/surveys/parse`、`/api/configs`）保持严格 JSON 校验，避免调用方把错误参数静默传入。
+
+## AI 服务
+
+填空题可通过题目配置中的 `ai_enabled` 或 `multi_text_blank_ai_flags` 启用服务端 AI。实际 AI 密钥、Base URL 和模型默认值由 `configs/surveycore.toml` 的 `[ai]` 分区提供，并在任务执行时注入执行配置。
+
+当前支持 OpenAI 兼容 Chat Completions、自定义 Base URL、Responses API 和自动协议 fallback。SurveyCore 不内置免费 AI 私有服务链路。
 
 ## 错误响应
 
@@ -109,9 +130,24 @@ API 错误统一返回稳定错误码、用户消息和调试详情：
 | `validation_error` | 业务参数未通过校验。 |
 | `not_found` | 任务或资源不存在。 |
 | `upstream_error` | 问卷平台解析、配置生成等上游调用失败。 |
+| `ai_config_error` | AI 配置不完整或不支持。 |
+| `ai_connection_failed` | AI 连接测试或调用失败。 |
 | `internal_error` | 服务内部错误。 |
 
 ## 任务状态
+
+任务详情响应会包含稳定进度和失败字段：
+
+| 字段 | 含义 |
+|---|---|
+| `progress.current` | 当前已成功提交数。 |
+| `progress.target` | 目标提交数。 |
+| `progress.success` | 成功提交数。 |
+| `progress.fail` | 失败提交数。 |
+| `progress.percent` | 完成比例，范围 `0` 到 `1`。 |
+| `error_code` | 标准化任务错误码，例如 `fill_failed`、`submission_verification_required`、`survey_provider_unavailable`、`user_stopped`。 |
+| `failure_reason` | 失败原因，优先使用运行时终止原因，其次使用错误消息或停止消息。 |
+| `terminal_stop_category` | 终止类别，例如 `fail_threshold`、`reverse_fill_exhausted`、`submission_verification`、`target_reached`。 |
 
 | 状态 | 含义 |
 |---|---|
@@ -121,6 +157,12 @@ API 错误统一返回稳定错误码、用户消息和调试详情：
 | `failed` | 执行失败。 |
 | `stopped` | 已停止。 |
 | `interrupted` | 服务重启导致中断。 |
+
+## 能力边界
+
+SurveyCore 是本地 HTTP/API 化的核心执行内核。Python 项目继续负责桌面 GUI、安装更新和用户交互；Go 项目负责解析、配置、任务执行、状态、日志和可被桌面端调用的稳定 API。
+
+SurveyCore 不包含 PySide GUI，也不引入 Playwright、Selenium 或浏览器兼容提交层。
 
 ## 许可证
 

@@ -2,37 +2,48 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/SurveyController/SurveyCore/internal/domain"
 )
 
-// Default UA keys for random user agent
-var DefaultRandomUAKeys = []string{"wechat", "mobile", "pc"}
+// Default UA keys for random user agent, matching Python's USER_AGENT_PRESETS.
+var DefaultRandomUAKeys = []string{"wechat_android", "mobile_android", "pc_web"}
+
+const (
+	CurrentConfigSchemaVersion = 6
+	maxAnswerDurationSeconds   = 30 * 60
+)
 
 // RuntimeConfig is the top-level user-facing configuration object.
 type RuntimeConfig struct {
-	URL                    string               `json:"url"`
-	SurveyTitle            string               `json:"survey_title,omitempty"`
-	SurveyProvider         string               `json:"survey_provider,omitempty"`
-	Target                 int                  `json:"target,omitempty"`
-	Threads                int                  `json:"threads,omitempty"`
-	SubmitInterval         [2]int               `json:"submit_interval,omitempty"`
-	AnswerDuration         [2]int               `json:"answer_duration,omitempty"`
-	AnswerDatetimeWindow   [2]string            `json:"answer_datetime_window,omitempty"`
-	RandomUAEnabled        bool                 `json:"random_ua_enabled,omitempty"`
-	RandomUAKeys           []string             `json:"random_ua_keys,omitempty"`
-	RandomUARatios         map[string]int       `json:"random_ua_ratios,omitempty"`
-	ReliabilityModeEnabled bool                 `json:"reliability_mode_enabled,omitempty"`
-	PsychoTargetAlpha      float64              `json:"psycho_target_alpha,omitempty"`
-	ReverseFillEnabled     bool                 `json:"reverse_fill_enabled,omitempty"`
-	ReverseFillSourcePath  string               `json:"reverse_fill_source_path,omitempty"`
-	ReverseFillFormat      string               `json:"reverse_fill_format,omitempty"`
-	ReverseFillStartRow    int                  `json:"reverse_fill_start_row,omitempty"`
-	ReverseFillThreads     int                  `json:"reverse_fill_threads,omitempty"`
-	AnswerRules            []map[string]any     `json:"answer_rules,omitempty"`
-	DimensionGroups        []string             `json:"dimension_groups,omitempty"`
-	QuestionEntries        []QuestionEntry      `json:"question_entries,omitempty"`
-	QuestionsInfo          []SurveyQuestionMeta `json:"questions_info,omitempty"`
+	URL                    string                     `json:"url"`
+	SurveyTitle            string                     `json:"survey_title,omitempty"`
+	SurveyProvider         string                     `json:"survey_provider,omitempty"`
+	Target                 int                        `json:"target,omitempty"`
+	Threads                int                        `json:"threads,omitempty"`
+	SubmitInterval         [2]int                     `json:"submit_interval,omitempty"`
+	AnswerDuration         [2]int                     `json:"answer_duration,omitempty"`
+	AnswerDatetimeWindow   [2]string                  `json:"answer_datetime_window,omitempty"`
+	RandomUAEnabled        bool                       `json:"random_ua_enabled,omitempty"`
+	RandomUAKeys           []string                   `json:"random_ua_keys,omitempty"`
+	RandomUARatios         map[string]int             `json:"random_ua_ratios,omitempty"`
+	ReliabilityModeEnabled bool                       `json:"reliability_mode_enabled,omitempty"`
+	PsychoTargetAlpha      float64                    `json:"psycho_target_alpha,omitempty"`
+	ReverseFillEnabled     bool                       `json:"reverse_fill_enabled,omitempty"`
+	ReverseFillSourcePath  string                     `json:"reverse_fill_source_path,omitempty"`
+	ReverseFillFormat      string                     `json:"reverse_fill_format,omitempty"`
+	ReverseFillStartRow    int                        `json:"reverse_fill_start_row,omitempty"`
+	ReverseFillThreads     int                        `json:"reverse_fill_threads,omitempty"`
+	AnswerRules            []map[string]any           `json:"answer_rules,omitempty"`
+	DimensionGroups        []string                   `json:"dimension_groups,omitempty"`
+	QuestionEntries        []QuestionEntry            `json:"question_entries,omitempty"`
+	QuestionsInfo          []SurveyQuestionMeta       `json:"questions_info,omitempty"`
+	ExtraFields            map[string]json.RawMessage `json:"-"`
 }
 
 // NewDefaultRuntimeConfig returns a RuntimeConfig with sensible defaults.
@@ -64,6 +75,411 @@ func DeserializeRuntimeConfig(data []byte) (*RuntimeConfig, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// UnmarshalJSON keeps Python-only or future config fields for lossless round trips.
+func (cfg *RuntimeConfig) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	normalized := normalizeRuntimeConfigJSON(raw)
+
+	type runtimeConfigAlias RuntimeConfig
+	var alias runtimeConfigAlias
+	if err := json.Unmarshal(configMustJSON(normalized), &alias); err != nil {
+		return err
+	}
+	*cfg = RuntimeConfig(alias)
+
+	for key := range runtimeConfigJSONKeys() {
+		delete(raw, key)
+	}
+	for key := range legacyPrivateRuntimeConfigJSONKeys() {
+		delete(raw, key)
+	}
+	if len(raw) == 0 {
+		cfg.ExtraFields = nil
+		return nil
+	}
+	cfg.ExtraFields = raw
+	return nil
+}
+
+// MarshalJSON writes preserved Python-only fields back alongside Go-supported fields.
+func (cfg RuntimeConfig) MarshalJSON() ([]byte, error) {
+	type runtimeConfigAlias RuntimeConfig
+	data, err := json.Marshal(runtimeConfigAlias(cfg))
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	known := runtimeConfigJSONKeys()
+	for key, value := range cfg.ExtraFields {
+		if len(value) == 0 {
+			continue
+		}
+		if _, ok := known[key]; ok {
+			continue
+		}
+		raw[key] = value
+	}
+	if _, ok := raw["config_schema_version"]; !ok {
+		raw["config_schema_version"] = configMustJSON(CurrentConfigSchemaVersion)
+	}
+	if _, ok := raw["_ai_config_present"]; !ok {
+		raw["_ai_config_present"] = configMustJSON(cfg.hasAIConfig())
+	}
+	return json.Marshal(raw)
+}
+
+func (cfg RuntimeConfig) hasAIConfig() bool {
+	return false
+}
+
+func normalizeRuntimeConfigJSON(raw map[string]json.RawMessage) map[string]json.RawMessage {
+	normalized := make(map[string]json.RawMessage, len(raw))
+	for key, value := range raw {
+		normalized[key] = value
+	}
+	for _, key := range []string{"target", "threads"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawConfigInt(value, 0)
+		}
+	}
+	if value, ok := raw["reverse_fill_start_row"]; ok {
+		normalized["reverse_fill_start_row"] = rawMinInt(value, 1, 1)
+	}
+	if value, ok := raw["reverse_fill_threads"]; ok {
+		normalized["reverse_fill_threads"] = rawMinInt(value, 1, 1)
+	}
+	for _, key := range []string{"random_ua_enabled", "reliability_mode_enabled", "reverse_fill_enabled"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawConfigBool(value, false)
+		}
+	}
+	if value, ok := raw["psycho_target_alpha"]; ok {
+		normalized["psycho_target_alpha"] = rawConfigFloat(value, 0)
+	}
+	for _, key := range []string{"url", "survey_title", "survey_provider", "reverse_fill_source_path", "reverse_fill_format"} {
+		if value, ok := raw[key]; ok {
+			normalized[key] = rawString(value)
+		}
+	}
+	if value, ok := raw["submit_interval"]; ok {
+		normalized["submit_interval"] = rawIntPair(value, [2]int{})
+	}
+	if value, ok := raw["answer_duration"]; ok {
+		normalized["answer_duration"] = rawAnswerDuration(value)
+	}
+	if value, ok := raw["answer_datetime_window"]; ok {
+		normalized["answer_datetime_window"] = rawAnswerDatetimeWindow(value)
+	}
+	if value, ok := raw["random_ua_ratios"]; ok {
+		normalized["random_ua_ratios"] = rawRandomUARatios(value)
+	}
+	if value, ok := raw["random_ua_keys"]; ok {
+		normalized["random_ua_keys"] = rawRandomUAKeys(value)
+	}
+	if value, ok := raw["reverse_fill_format"]; ok {
+		normalized["reverse_fill_format"] = rawReverseFillFormat(value)
+	}
+	return normalized
+}
+
+func rawConfigInt(raw json.RawMessage, fallback int) json.RawMessage {
+	return configMustJSON(configToInt(configAnyFromRaw(raw), fallback))
+}
+
+func rawConfigFloat(raw json.RawMessage, fallback float64) json.RawMessage {
+	return configMustJSON(configToFloat(configAnyFromRaw(raw), fallback))
+}
+
+func rawConfigBool(raw json.RawMessage, fallback bool) json.RawMessage {
+	return configMustJSON(configToBool(configAnyFromRaw(raw), fallback))
+}
+
+func rawMinInt(raw json.RawMessage, fallback, minValue int) json.RawMessage {
+	value := configToInt(configAnyFromRaw(raw), fallback)
+	if value < minValue {
+		value = minValue
+	}
+	return configMustJSON(value)
+}
+
+func rawString(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	if value == nil {
+		return configMustJSON("")
+	}
+	return configMustJSON(strings.TrimSpace(fmt.Sprint(value)))
+}
+
+func rawNullableString(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	if value == nil {
+		return configMustJSON(nil)
+	}
+	return rawString(raw)
+}
+
+func rawIntPair(raw json.RawMessage, fallback [2]int) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok || len(items) < 2 {
+		return configMustJSON(fallback)
+	}
+	first := configToInt(items[0], fallback[0])
+	second := configToInt(items[1], fallback[1])
+	return configMustJSON([2]int{first, second})
+}
+
+func rawAnswerDuration(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	defaultRange := [2]int{60, 120}
+	if value == nil {
+		return configMustJSON(defaultRange)
+	}
+	if items, ok := value.([]any); ok {
+		if len(items) >= 2 {
+			low := configClampInt(configToInt(items[0], 0), 0, maxAnswerDurationSeconds)
+			high := configClampInt(configToInt(items[1], low), low, maxAnswerDurationSeconds)
+			if low == 0 && high == 0 {
+				return configMustJSON(defaultRange)
+			}
+			if low == high {
+				return configMustJSON(configLegacyAnswerDurationRange(low))
+			}
+			return configMustJSON([2]int{low, high})
+		}
+		if len(items) == 1 {
+			return configMustJSON(configLegacyAnswerDurationRange(configToInt(items[0], 0)))
+		}
+		return configMustJSON(defaultRange)
+	}
+	return configMustJSON(configLegacyAnswerDurationRange(configToInt(value, 0)))
+}
+
+func rawAnswerDatetimeWindow(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok {
+		return configMustJSON([2]string{})
+	}
+	var result [2]string
+	if len(items) >= 1 {
+		result[0] = configNormalizeAnswerDatetimeString(items[0])
+	}
+	if len(items) >= 2 {
+		result[1] = configNormalizeAnswerDatetimeString(items[1])
+	}
+	return configMustJSON(result)
+}
+
+func rawRandomUAKeys(raw json.RawMessage) json.RawMessage {
+	value := configAnyFromRaw(raw)
+	items, ok := value.([]any)
+	if !ok {
+		return configMustJSON([]string{})
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		key := strings.TrimSpace(fmt.Sprint(item))
+		if isValidRandomUAKey(key) {
+			result = append(result, key)
+		}
+	}
+	return configMustJSON(result)
+}
+
+func rawRandomUARatios(raw json.RawMessage) json.RawMessage {
+	var source map[string]any
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return configMustJSON(defaultRandomUARatios())
+	}
+	total := 0
+	for _, value := range source {
+		total += configToInt(value, 0)
+	}
+	if total != 100 {
+		return configMustJSON(defaultRandomUARatios())
+	}
+	result := map[string]int{
+		"wechat": configToInt(source["wechat"], 33),
+		"mobile": configToInt(source["mobile"], 33),
+		"pc":     configToInt(source["pc"], 34),
+	}
+	return configMustJSON(result)
+}
+
+func rawReverseFillFormat(raw json.RawMessage) json.RawMessage {
+	value := strings.ToLower(strings.TrimSpace(fmt.Sprint(configAnyFromRaw(raw))))
+	switch value {
+	case domain.ReverseFillFormatAuto, domain.ReverseFillFormatWJXSequence, domain.ReverseFillFormatWJXScore, domain.ReverseFillFormatWJXText:
+		return configMustJSON(value)
+	default:
+		return configMustJSON(domain.ReverseFillFormatAuto)
+	}
+}
+
+func defaultRandomUARatios() map[string]int {
+	return map[string]int{"wechat": 33, "mobile": 33, "pc": 34}
+}
+
+func isValidRandomUAKey(key string) bool {
+	switch key {
+	case "wechat_android", "mobile_android", "pc_web", "wechat", "mobile", "pc":
+		return true
+	default:
+		return false
+	}
+}
+
+func configAnyFromRaw(raw json.RawMessage) any {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil
+	}
+	return value
+}
+
+func configToInt(value any, fallback int) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed
+		}
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return int(parsed)
+		}
+	}
+	return fallback
+}
+
+func configToFloat(value any, fallback float64) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return parsed
+		}
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func configToBool(value any, fallback bool) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case float64:
+		return typed != 0
+	case string:
+		text := strings.ToLower(strings.TrimSpace(typed))
+		switch text {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off", "":
+			return false
+		}
+	}
+	return fallback
+}
+
+func configLegacyAnswerDurationRange(value int) [2]int {
+	normalized := configClampInt(value, 0, maxAnswerDurationSeconds)
+	if normalized <= 0 {
+		return [2]int{60, 120}
+	}
+	low := int(float64(normalized)*0.9 + 0.5)
+	high := int(float64(normalized)*1.1 + 0.5)
+	return [2]int{configClampInt(low, 0, maxAnswerDurationSeconds), configClampInt(high, low, maxAnswerDurationSeconds)}
+}
+
+func configClampInt(value, low, high int) int {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
+}
+
+func configNormalizeAnswerDatetimeString(value any) string {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" {
+		return ""
+	}
+	parsed, err := time.ParseInLocation("2006-01-02 15:04:05", text, time.Local)
+	if err != nil {
+		return ""
+	}
+	return parsed.Format("2006-01-02 15:04:05")
+}
+
+func configMustJSON(value any) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage("null")
+	}
+	return data
+}
+
+func runtimeConfigJSONKeys() map[string]struct{} {
+	result := make(map[string]struct{})
+	t := reflect.TypeOf(RuntimeConfig{})
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := field.Tag.Get("json")
+		name := strings.Split(tag, ",")[0]
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		result[name] = struct{}{}
+	}
+	return result
+}
+
+func legacyPrivateRuntimeConfigJSONKeys() map[string]struct{} {
+	return map[string]struct{}{
+		"random_ip_enabled":       {},
+		"proxy_source":            {},
+		"custom_proxy_api":        {},
+		"proxy_area_code":         {},
+		"random_ip_user_id":       {},
+		"random_ip_device_id":     {},
+		"ip_extract_endpoint":     {},
+		"random_ip_lease_minute":  {},
+		"fail_stop_enabled":       {},
+		"pause_on_aliyun_captcha": {},
+		"ai_mode":                 {},
+		"ai_provider":             {},
+		"ai_api_key":              {},
+		"ai_base_url":             {},
+		"ai_api_protocol":         {},
+		"ai_model":                {},
+		"ai_system_prompt":        {},
+		"ai_free_endpoint":        {},
+		"random_ip_session_path":  {},
+	}
 }
 
 // Provider constants
