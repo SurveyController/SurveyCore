@@ -1,35 +1,28 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
 
-func TestListenAddrUsesLocalhostAndDefaultPort(t *testing.T) {
-	t.Setenv("SURVEY_PORT", "")
+	"github.com/SurveyController/SurveyCore/internal/appconfig"
+)
 
-	got, err := listenAddr()
-	if err != nil {
-		t.Fatalf("listenAddr() error = %v", err)
-	}
-	if got != "localhost:19178" {
-		t.Fatalf("listenAddr() = %q, want %q", got, "localhost:19178")
-	}
-}
-
-func TestListenAddrUsesSurveyPort(t *testing.T) {
+func TestServiceConfigUsesSurveyPort(t *testing.T) {
 	t.Setenv("SURVEY_PORT", "8080")
 
-	got, err := listenAddr()
+	cfg, err := appconfig.Load(filepath.Join(t.TempDir(), "missing.toml"))
 	if err != nil {
-		t.Fatalf("listenAddr() error = %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
-	if got != "localhost:8080" {
-		t.Fatalf("listenAddr() = %q, want %q", got, "localhost:8080")
+	if got := cfg.ListenAddr(); got != "127.0.0.1:8080" {
+		t.Fatalf("ListenAddr() = %q, want %q", got, "127.0.0.1:8080")
 	}
 }
 
-func TestListenAddrRejectsInvalidPort(t *testing.T) {
+func TestServiceConfigRejectsInvalidSurveyPort(t *testing.T) {
 	t.Setenv("SURVEY_PORT", "abc")
 
-	if _, err := listenAddr(); err == nil {
-		t.Fatal("listenAddr() error = nil, want error")
+	if _, err := appconfig.Load(filepath.Join(t.TempDir(), "missing.toml")); err == nil {
+		t.Fatal("Load() error = nil, want invalid port error")
 	}
 }

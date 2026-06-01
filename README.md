@@ -45,13 +45,34 @@ go build -o surveycore ./cmd/surveycore
 默认监听：
 
 ```text
-localhost:19178
+127.0.0.1:19178
 ```
 
-只能用环境变量修改端口：
+服务会读取 `configs/surveycore.toml`，可配置监听端口、SQLite 路径和服务端私有 AI 默认值：
+
+```toml
+[server]
+port = 19178
+
+[storage]
+db_path = "data/surveycore.db"
+
+[ai]
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+api_key = ""
+```
+
+任务请求里的 AI 配置非空时优先使用请求值；请求未提供时，SurveyCore 会把 `[ai]` 中的服务端默认值补到执行配置，便于 Python 桌面端不携带密钥也能调用服务端 AI 填空。
+
+也可以用环境变量覆盖常用配置：
 
 ```text
 SURVEY_PORT=8080
+SURVEYCORE_DB_PATH=data/surveycore.db
+AI_BASE_URL=https://api.deepseek.com/v1
+AI_MODEL=deepseek-chat
+AI_API_KEY=...
 ```
 
 ## 接口列表

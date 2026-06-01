@@ -1,0 +1,11 @@
+[server]
+port = 19178
+
+[storage]
+db_path = "data/surveycore.db"
+
+[ai]
+# 服务端私有 AI 填空默认配置。请求体中的 AI 配置非空时优先使用请求值。
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+api_key = ""

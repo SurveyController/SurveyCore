@@ -15,6 +15,7 @@ import (
 
 	"github.com/SurveyController/SurveyCore/internal/config"
 	"github.com/SurveyController/SurveyCore/internal/engine"
+	"github.com/SurveyController/SurveyCore/internal/execution"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
 	"github.com/SurveyController/SurveyCore/internal/network/proxy"
@@ -22,20 +23,26 @@ import (
 )
 
 type TaskManager struct {
-	store    *Store
-	registry engine.ProviderRegistry
-	mu       sync.RWMutex
-	tasks    map[string]*TaskRecord
-	runtimes map[string]*taskRuntime
-	wg       sync.WaitGroup
+	store             *Store
+	registry          engine.ProviderRegistry
+	executionDefaults func(*execution.ExecutionConfig)
+	mu                sync.RWMutex
+	tasks             map[string]*TaskRecord
+	runtimes          map[string]*taskRuntime
+	wg                sync.WaitGroup
 }
 
 func NewTaskManager(store *Store, registry engine.ProviderRegistry) *TaskManager {
+	return NewTaskManagerWithExecutionDefaults(store, registry, nil)
+}
+
+func NewTaskManagerWithExecutionDefaults(store *Store, registry engine.ProviderRegistry, executionDefaults func(*execution.ExecutionConfig)) *TaskManager {
 	return &TaskManager{
-		store:    store,
-		registry: registry,
-		tasks:    make(map[string]*TaskRecord),
-		runtimes: make(map[string]*taskRuntime),
+		store:             store,
+		registry:          registry,
+		executionDefaults: executionDefaults,
+		tasks:             make(map[string]*TaskRecord),
+		runtimes:          make(map[string]*taskRuntime),
 	}
 }
 
@@ -276,6 +283,7 @@ func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, st
 	if err != nil {
 		return fmt.Errorf("准备执行配置失败: %w", err)
 	}
+	m.applyExecutionDefaults(execCfg)
 	state.Config = execCfg
 	m.updateTask(taskID, func(t *TaskRecord) {
 		t.Config = cloneRuntimeConfig(cfg)
@@ -369,6 +377,12 @@ func (m *TaskManager) saveTask(task *TaskRecord) {
 	syncTaskDerivedFields(task)
 	if err := m.store.SaveTask(task); err != nil {
 		logging.ErrorFields("保存任务状态失败", logging.F("task_id", task.ID), logging.F("error", err))
+	}
+}
+
+func (m *TaskManager) applyExecutionDefaults(cfg *execution.ExecutionConfig) {
+	if m.executionDefaults != nil {
+		m.executionDefaults(cfg)
 	}
 }
 
@@ -584,10 +598,18 @@ func NewProxyPoolFromRuntimeConfig(cfg *models.RuntimeConfig) *proxy.Pool {
 }
 
 func DefaultTaskManager() (*TaskManager, error) {
-	store := NewStore("data/surveycore.db")
+	return DefaultTaskManagerWithStore("data/surveycore.db")
+}
+
+func DefaultTaskManagerWithStore(dbPath string) (*TaskManager, error) {
+	return DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath, nil)
+}
+
+func DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath string, executionDefaults func(*execution.ExecutionConfig)) (*TaskManager, error) {
+	store := NewStore(dbPath)
 	if err := store.Init(); err != nil {
 		return nil, err
 	}
-	manager := NewTaskManager(store, providers.Default())
+	manager := NewTaskManagerWithExecutionDefaults(store, providers.Default(), executionDefaults)
 	return manager, nil
 }

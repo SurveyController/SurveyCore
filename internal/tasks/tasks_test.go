@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SurveyController/SurveyCore/internal/execution"
 	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
 
 	"github.com/SurveyController/SurveyCore/internal/models"
@@ -111,6 +112,21 @@ func TestTaskManagerLoadMarksRunningInterruptedAndSkipsBadRecord(t *testing.T) {
 	}
 	if task.Status != TaskInterrupted {
 		t.Fatalf("status = %q, want interrupted", task.Status)
+	}
+}
+
+func TestTaskManagerAppliesExecutionDefaults(t *testing.T) {
+	manager := NewTaskManagerWithExecutionDefaults(nil, nil, func(cfg *execution.ExecutionConfig) {
+		cfg.AIBaseURL = "https://ai.example.test/v1"
+		cfg.AIModel = "test-model"
+		cfg.AIAPIKey = "test-key"
+	})
+	cfg := &execution.ExecutionConfig{}
+
+	manager.applyExecutionDefaults(cfg)
+
+	if cfg.AIBaseURL != "https://ai.example.test/v1" || cfg.AIModel != "test-model" || cfg.AIAPIKey != "test-key" {
+		t.Fatalf("execution defaults = %#v, want AI defaults", cfg)
 	}
 }
 
