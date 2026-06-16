@@ -201,7 +201,7 @@ func normalizeProxyCount(count int) int {
 }
 
 func defaultOfficialEndpoint() string {
-	return "https://api-wjx.hungrym0.top/api/ip/extract"
+	return "https://api-wjx.hungrym0.com/api/ip/extract"
 }
 
 func isAllowedMinute(minute int) bool {

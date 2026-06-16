@@ -38,7 +38,7 @@ go build -o surveycore ./cmd/surveycore
 
 ### API 文档
 
-见 https://surveydoc.hungrym0.top/sdk
+见 https://surveydoc.hungrym0.com/sdk
 
 ## 服务地址
 
