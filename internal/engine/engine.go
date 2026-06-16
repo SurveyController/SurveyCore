@@ -298,17 +298,27 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 	}
 
 	total := 0
+	hasConfiguredRatio := false
 	for _, key := range keys {
 		if _, ok := userAgentProfiles[key]; !ok {
 			continue
 		}
-		weight := cfg.UserAgentRatios[key]
-		if weight <= 0 {
+		weight, configured := cfg.UserAgentRatios[key]
+		if configured {
+			hasConfiguredRatio = true
+		}
+		if !configured {
 			weight = 1
+		}
+		if weight <= 0 {
+			continue
 		}
 		total += weight
 	}
 	if total <= 0 {
+		if hasConfiguredRatio {
+			return ""
+		}
 		return ""
 	}
 
@@ -318,9 +328,12 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 		if !ok {
 			continue
 		}
-		weight := cfg.UserAgentRatios[key]
-		if weight <= 0 {
+		weight, configured := cfg.UserAgentRatios[key]
+		if !configured {
 			weight = 1
+		}
+		if weight <= 0 {
+			continue
 		}
 		if pick < weight {
 			return ua

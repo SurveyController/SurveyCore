@@ -268,11 +268,16 @@ func buildChoiceAnswer(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 		if idx >= optionCount {
 			idx = 0
 		}
+		fillSource := cfg.SingleOptionFillTexts
+		if isDropdown {
+			fillSource = cfg.DroplistOptionFillTexts
+		}
 		return &TencentAnswerAction{
 			QuestionID:      meta.ProviderQuestionID,
 			QuestionType:    meta.ProviderType,
 			SelectedIDs:     []string{getOptionIDFromRaw(rawQ, idx)},
 			SelectedIndices: []int{idx},
+			OptionFillTexts: resolveOptionFillTexts(fillSource, configIdx, []int{idx}, &meta),
 		}
 	}
 
@@ -281,11 +286,16 @@ func buildChoiceAnswer(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 
 	// Get actual option ID from raw data
 	optID := getOptionIDFromRaw(rawQ, idx)
+	fillSource := cfg.SingleOptionFillTexts
+	if isDropdown {
+		fillSource = cfg.DroplistOptionFillTexts
+	}
 	return &TencentAnswerAction{
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
 		SelectedIDs:     []string{optID},
 		SelectedIndices: []int{idx},
+		OptionFillTexts: resolveOptionFillTexts(fillSource, configIdx, []int{idx}, &meta),
 	}
 }
 
@@ -320,6 +330,7 @@ func buildMultipleAnswer(cfg *execution.ExecutionConfig, meta models.SurveyQuest
 		QuestionType:    meta.ProviderType,
 		SelectedIDs:     ids,
 		SelectedIndices: append([]int{}, selected...),
+		OptionFillTexts: resolveOptionFillTexts(cfg.MultipleOptionFillTexts, configIdx, selected, &meta),
 	}
 }
 
@@ -456,4 +467,21 @@ func getProbs(cfg *execution.ExecutionConfig, configIdx, optionCount int, isDrop
 		}
 	}
 	return probs
+}
+
+func resolveOptionFillTexts(fillTextsSource [][]*string, configIdx int, selected []int, meta *models.SurveyQuestionMeta) map[int]string {
+	if configIdx < 0 || configIdx >= len(fillTextsSource) {
+		return nil
+	}
+	fillEntries := fillTextsSource[configIdx]
+	result := make(map[int]string)
+	for _, idx := range selected {
+		if fill := providerutil.ResolveOptionFillText(fillEntries, idx, meta); fill != "" {
+			result[idx] = fill
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }

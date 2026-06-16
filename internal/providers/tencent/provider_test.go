@@ -62,6 +62,9 @@ func TestBuildSubmitBodyCoversChoiceTextAndMatrix(t *testing.T) {
 	if choiceOptions[1]["checked"] != 1 {
 		t.Fatalf("choice options = %#v, want second option checked", choiceOptions)
 	}
+	if _, ok := choiceOptions[1]["blanks"]; ok {
+		t.Fatalf("choice blanks = %#v, want absent", choiceOptions[1]["blanks"])
+	}
 	if firstPageQuestions[1]["text"] != "hello" {
 		t.Fatalf("text answer = %#v, want hello", firstPageQuestions[1])
 	}
@@ -71,6 +74,55 @@ func TestBuildSubmitBodyCoversChoiceTextAndMatrix(t *testing.T) {
 	rowOptions := rows[0]["options"].([]map[string]any)
 	if rowOptions[0]["id"] != "m1" || rowOptions[0]["checked"] != 1 || rowOptions[1]["checked"] != 0 {
 		t.Fatalf("matrix row options = %#v, want top-level option ids with first checked", rowOptions)
+	}
+}
+
+func TestBuildSubmitBodyIncludesOptionFillBlanks(t *testing.T) {
+	rawQuestions := []map[string]any{
+		{
+			"id":      "q1",
+			"type":    "radio",
+			"page_id": "p1",
+			"options": []any{
+				map[string]any{"id": "o1", "text": "A"},
+				map[string]any{"id": "o2", "text": "其他"},
+			},
+		},
+	}
+	actions := []TencentAnswerAction{
+		{QuestionID: "q1", QuestionType: "radio", SelectedIDs: []string{"o2"}, SelectedIndices: []int{1}, OptionFillTexts: map[int]string{1: "补充"}},
+	}
+
+	body := buildSubmitBody("123", "hash", rawQuestions, actions, 33, "UA")
+	pages := body["answer_survey"].(map[string]any)["pages"].([]map[string]any)
+	options := pages[0]["questions"].([]map[string]any)[0]["options"].([]map[string]any)
+	blanks, ok := options[1]["blanks"].([]map[string]any)
+	if !ok || len(blanks) != 1 || blanks[0]["text"] != "补充" {
+		t.Fatalf("option blanks = %#v, want one filled blank", options[1]["blanks"])
+	}
+}
+
+func TestBuildChoiceAnswerUsesDefaultFillTextForFillableOption(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		SingleProb: []any{[]float64{0, 1}},
+		QuestionConfigIndexMap: map[int]string{
+			1: "0",
+		},
+		QuestionsMetadata: map[int]models.SurveyQuestionMeta{
+			1: {Num: 1, TypeCode: "3", Options: 2, ProviderQuestionID: "q-1", ProviderType: "radio", FillableOptions: []int{1}},
+		},
+		SingleOptionFillTexts: [][]*string{{nil, nil}},
+	}
+	rawQuestions := []map[string]any{
+		{"id": "q-1", "type": "radio", "page_id": "p-1", "options": []any{map[string]any{"id": "o-1"}, map[string]any{"id": "o-2"}}},
+	}
+
+	actions, err := buildAnswerActions(cfg, runstate.NewExecutionState(), rawQuestions, "")
+	if err != nil {
+		t.Fatalf("buildAnswerActions returned error: %v", err)
+	}
+	if got := actions[0].OptionFillTexts[1]; got != "其他" {
+		t.Fatalf("option fill = %q, want 默认占位文本", got)
 	}
 }
 

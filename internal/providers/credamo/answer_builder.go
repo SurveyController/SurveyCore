@@ -70,7 +70,7 @@ func buildSingleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 
 	switch typeCode {
 	case "3": // single
-		return buildChoiceAction(cfg, meta, configIdx, optionCount, runtime), nil
+		return buildChoiceAction(cfg, meta, configIdx, optionCount, false, runtime), nil
 	case "4": // multiple
 		return buildMultipleAction(cfg, meta, configIdx, optionCount, runtime), nil
 	case "5": // scale
@@ -78,7 +78,7 @@ func buildSingleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 	case "6": // matrix
 		return buildMatrixAction(cfg, meta, configIdx, runtime), nil
 	case "7": // dropdown
-		return buildChoiceAction(cfg, meta, configIdx, optionCount, runtime), nil
+		return buildChoiceAction(cfg, meta, configIdx, optionCount, true, runtime), nil
 	case "11": // order
 		return buildOrderAction(meta, optionCount), nil
 	case "1": // text
@@ -96,7 +96,11 @@ func buildSingleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 	}
 }
 
-func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, runtime *questions.RunContext) *CredamoAnswerAction {
+func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestionMeta, configIdx, optionCount int, isDropdown bool, runtime *questions.RunContext) *CredamoAnswerAction {
+	fillSource := cfg.SingleOptionFillTexts
+	if isDropdown {
+		fillSource = cfg.DroplistOptionFillTexts
+	}
 	if meta.ForcedOptionIndex != nil && *meta.ForcedOptionIndex >= 0 {
 		idx := *meta.ForcedOptionIndex
 		if idx >= optionCount {
@@ -106,6 +110,7 @@ func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 			QuestionID:      meta.ProviderQuestionID,
 			QuestionType:    meta.ProviderType,
 			SelectedIndices: []int{idx},
+			OptionFillTexts: resolveOptionFillTexts(fillSource, configIdx, []int{idx}, &meta),
 		}
 	}
 
@@ -126,6 +131,7 @@ func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
 		SelectedIndices: []int{idx},
+		OptionFillTexts: resolveOptionFillTexts(fillSource, configIdx, []int{idx}, &meta),
 	}
 }
 
@@ -135,6 +141,13 @@ func buildMultipleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuest
 		copy(probs, cfg.MultipleProb[configIdx])
 	}
 	if providerutil.AllZero(probs) {
+		if allowsEmptyMultipleSelection(cfg, configIdx) {
+			return &CredamoAnswerAction{
+				QuestionID:      meta.ProviderQuestionID,
+				QuestionType:    meta.ProviderType,
+				SelectedIndices: nil,
+			}
+		}
 		for i := range probs {
 			probs[i] = 1.0
 		}
@@ -154,6 +167,7 @@ func buildMultipleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuest
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
 		SelectedIndices: selected,
+		OptionFillTexts: resolveOptionFillTexts(cfg.MultipleOptionFillTexts, configIdx, selected, &meta),
 	}
 }
 
@@ -175,6 +189,7 @@ func buildScaleAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestion
 		QuestionID:      meta.ProviderQuestionID,
 		QuestionType:    meta.ProviderType,
 		SelectedIndices: []int{idx},
+		OptionFillTexts: resolveOptionFillTexts(cfg.DroplistOptionFillTexts, configIdx, []int{idx}, &meta),
 	}
 }
 
@@ -243,4 +258,37 @@ func buildTextAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestionM
 		QuestionType: meta.ProviderType,
 		TextValue:    text,
 	}
+}
+
+func resolveOptionFillTexts(fillTextsSource [][]*string, configIdx int, selected []int, meta *models.SurveyQuestionMeta) map[int]string {
+	if configIdx < 0 || configIdx >= len(fillTextsSource) {
+		return nil
+	}
+	fillEntries := fillTextsSource[configIdx]
+	result := make(map[int]string)
+	for _, idx := range selected {
+		if fill := providerutil.ResolveOptionFillText(fillEntries, idx, meta); fill != "" {
+			result[idx] = fill
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func allowsEmptyMultipleSelection(cfg *execution.ExecutionConfig, configIdx int) bool {
+	if cfg == nil || configIdx < 0 || configIdx >= len(cfg.MultipleProb) {
+		return false
+	}
+	probs := cfg.MultipleProb[configIdx]
+	if len(probs) == 0 {
+		return false
+	}
+	for _, prob := range probs {
+		if prob > 0 {
+			return false
+		}
+	}
+	return true
 }

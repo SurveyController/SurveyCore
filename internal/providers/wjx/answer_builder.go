@@ -284,6 +284,7 @@ func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 			QuestionNum:     meta.Num,
 			Kind:            "choice",
 			SelectedIndices: []int{idx},
+			OptionFillTexts: resolveChoiceOptionFillText(cfg, configIdx, idx, isDropdown, &meta),
 		}, nil
 	}
 
@@ -292,7 +293,7 @@ func buildChoiceAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestio
 	selectedIdx := runtime.ChooseSingle(meta, configIdx, optionCount, probs, nil)
 
 	// Resolve option fill text
-	fillTexts := resolveChoiceOptionFillText(cfg, configIdx, selectedIdx, isDropdown)
+	fillTexts := resolveChoiceOptionFillText(cfg, configIdx, selectedIdx, isDropdown, &meta)
 
 	return &AnswerAction{
 		QuestionNum:     meta.Num,
@@ -332,7 +333,7 @@ func buildMultipleChoiceAction(cfg *execution.ExecutionConfig, meta models.Surve
 	}
 
 	selected := runtime.ChooseMultiple(meta, configIdx, optionCount, minLimit, maxLimit, probs)
-	fillTexts := resolveSelectedOptionFillTexts(cfg.MultipleOptionFillTexts, configIdx, selected)
+	fillTexts := resolveSelectedOptionFillTexts(cfg.MultipleOptionFillTexts, configIdx, selected, &meta)
 
 	return &AnswerAction{
 		QuestionNum:     meta.Num,
@@ -496,34 +497,29 @@ func buildOrderAction(cfg *execution.ExecutionConfig, meta models.SurveyQuestion
 }
 
 // resolveChoiceOptionFillText resolves fill text for selected single/dropdown options from config.
-func resolveChoiceOptionFillText(cfg *execution.ExecutionConfig, configIdx, selectedIdx int, isDropdown bool) map[int]string {
+func resolveChoiceOptionFillText(cfg *execution.ExecutionConfig, configIdx, selectedIdx int, isDropdown bool, meta *models.SurveyQuestionMeta) map[int]string {
 	var fillTextsSource [][]*string
 	if isDropdown {
 		fillTextsSource = cfg.DroplistOptionFillTexts
 	} else {
 		fillTextsSource = cfg.SingleOptionFillTexts
 	}
-	return resolveSelectedOptionFillTexts(fillTextsSource, configIdx, []int{selectedIdx})
+	return resolveSelectedOptionFillTexts(fillTextsSource, configIdx, []int{selectedIdx}, meta)
 }
 
-func resolveSelectedOptionFillTexts(fillTextsSource [][]*string, configIdx int, selected []int) map[int]string {
+func resolveSelectedOptionFillTexts(fillTextsSource [][]*string, configIdx int, selected []int, meta *models.SurveyQuestionMeta) map[int]string {
 	if configIdx < 0 || configIdx >= len(fillTextsSource) {
 		return nil
 	}
 	fillEntries := fillTextsSource[configIdx]
-	if len(fillEntries) == 0 {
+	if len(fillEntries) == 0 && (meta == nil || len(meta.FillableOptions) == 0) {
 		return nil
 	}
 	result := make(map[int]string)
 	for _, selectedIdx := range selected {
-		if selectedIdx < 0 || selectedIdx >= len(fillEntries) {
-			continue
+		if fill := providerutil.ResolveOptionFillText(fillEntries, selectedIdx, meta); fill != "" {
+			result[selectedIdx] = fill
 		}
-		fillValue := fillEntries[selectedIdx]
-		if fillValue == nil || strings.TrimSpace(*fillValue) == "" {
-			continue
-		}
-		result[selectedIdx] = strings.TrimSpace(*fillValue)
 	}
 	if len(result) == 0 {
 		return nil

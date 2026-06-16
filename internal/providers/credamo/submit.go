@@ -111,7 +111,12 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 				}
 				if idx < len(rawOptions) {
 					opt := rawOptions[idx]
-					qst["answerQstChoice"] = choicePayload(opt)
+					payload := choicePayload(opt)
+					if fill := strings.TrimSpace(action.OptionFillTexts[idx]); fill != "" {
+						payload["content"] = fill
+						payload["otherContent"] = fill
+					}
+					qst["answerQstChoice"] = payload
 				}
 			}
 		case "4": // multiple
@@ -119,7 +124,12 @@ func buildSubmitBody(shortURL string, rawQuestions []map[string]any, actions []C
 			for _, idx := range action.SelectedIndices {
 				if idx < len(rawOptions) {
 					opt := rawOptions[idx]
-					choiceList = append(choiceList, choicePayload(opt))
+					payload := choicePayload(opt)
+					if fill := strings.TrimSpace(action.OptionFillTexts[idx]); fill != "" {
+						payload["content"] = fill
+						payload["otherContent"] = fill
+					}
+					choiceList = append(choiceList, payload)
 				}
 			}
 			qst["answerQstChoiceList"] = choiceList

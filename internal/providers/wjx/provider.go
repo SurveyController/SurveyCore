@@ -35,6 +35,11 @@ const (
 )
 
 var submitRejectRe = regexp.MustCompile(`^\s*(\d+)[〒](\d+)[〒](.+)$`)
+var sceneIDPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bsceneId\s*[:=]\s*["']([^"']+)["']`),
+	regexp.MustCompile(`(?i)\bscene_id\s*[:=]\s*["']([^"']+)["']`),
+	regexp.MustCompile(`(?i)\bdata-scene-id\s*=\s*["']([^"']+)["']`),
+}
 
 // Provider implements the WJX survey provider.
 type Provider struct{}
@@ -188,7 +193,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 	}
 
 	// Submit
-	submitBody := fmt.Sprintf("submitdata=%s&sceneId=q0hcfsca", url.QueryEscape(submitData))
+	submitBody := fmt.Sprintf("submitdata=%s&sceneId=%s", url.QueryEscape(submitData), url.QueryEscape(extractSceneID(html)))
 	submitResp, err := httpclient.Post(ctx, submitURL, submitBody, submitHeaders, proxyAddr, 20*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("提交问卷失败: %w", err)
@@ -239,6 +244,20 @@ func submitDomain(surveyURL string) string {
 		return "ks.wjx.com"
 	}
 	return "v.wjx.cn"
+}
+
+func extractSceneID(pageHTML string) string {
+	text := strings.TrimSpace(pageHTML)
+	if text == "" {
+		return "q0hcfsca"
+	}
+	for _, pattern := range sceneIDPatterns {
+		match := pattern.FindStringSubmatch(text)
+		if len(match) == 2 && strings.TrimSpace(match[1]) != "" {
+			return strings.TrimSpace(match[1])
+		}
+	}
+	return "q0hcfsca"
 }
 
 func formatWjxStarttime(timestampSeconds int) string {

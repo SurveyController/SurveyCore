@@ -44,3 +44,27 @@ func TestSampleUserAgentHonorsDisabledAndRatios(t *testing.T) {
 		t.Fatalf("UA = %q, want pc profile", ua)
 	}
 }
+
+func TestSampleUserAgentSkipsZeroWeightProfiles(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		RandomUserAgentEnabled: true,
+		RandomUserAgentKeys:    []string{"pc", "mobile"},
+		UserAgentRatios:        map[string]int{"pc": 0, "mobile": 5},
+	}
+	for i := 0; i < 20; i++ {
+		if got := sampleUserAgent(cfg); got != userAgentProfiles["mobile"] {
+			t.Fatalf("UA = %q, want mobile only", got)
+		}
+	}
+}
+
+func TestSampleUserAgentReturnsEmptyWhenAllConfiguredWeightsAreZero(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		RandomUserAgentEnabled: true,
+		RandomUserAgentKeys:    []string{"pc", "mobile"},
+		UserAgentRatios:        map[string]int{"pc": 0, "mobile": 0},
+	}
+	if got := sampleUserAgent(cfg); got != "" {
+		t.Fatalf("UA = %q, want empty", got)
+	}
+}

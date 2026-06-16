@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/SurveyController/SurveyCore/internal/execution"
+	"github.com/SurveyController/SurveyCore/internal/questions"
 	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
 
 	"github.com/SurveyController/SurveyCore/internal/models"
@@ -129,6 +130,49 @@ func TestBuildSubmitBodyCoversRawCredamoAPIShape(t *testing.T) {
 	}
 	if items[4]["answerContent"] != "你好" {
 		t.Fatalf("text answer = %#v, want 你好", items[4])
+	}
+}
+
+func TestBuildSubmitBodyIncludesChoiceFillContent(t *testing.T) {
+	rawQuestions := []map[string]any{
+		{"qstId": "101", "questionType": 2, "selector": 1, "choices": []any{map[string]any{"choiceId": "11"}, map[string]any{"choiceId": "12"}}},
+		{"qstId": "102", "questionType": 2, "selector": 2, "choices": []any{map[string]any{"choiceId": "21"}, map[string]any{"choiceId": "22"}}},
+	}
+	actions := []CredamoAnswerAction{
+		{QuestionID: "101", QuestionType: "single", SelectedIndices: []int{1}, OptionFillTexts: map[int]string{1: "单选补充"}},
+		{QuestionID: "102", QuestionType: "multiple", SelectedIndices: []int{0}, OptionFillTexts: map[int]string{0: "多选补充"}},
+	}
+
+	body := buildSubmitBody("demo", rawQuestions, actions, &execution.ExecutionConfig{}, 1000, 50)
+	items := body["answerQstList"].([]map[string]any)
+	single := items[0]["answerQstChoice"].(map[string]any)
+	if single["content"] != "单选补充" || single["otherContent"] != "单选补充" {
+		t.Fatalf("single fill payload = %#v", single)
+	}
+	multi := items[1]["answerQstChoiceList"].([]map[string]any)[0]
+	if multi["content"] != "多选补充" || multi["otherContent"] != "多选补充" {
+		t.Fatalf("multiple fill payload = %#v", multi)
+	}
+}
+
+func TestBuildMultipleActionKeepsAllZeroConfigEmpty(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		MultipleProb: [][]float64{{0, 0, 0}},
+		QuestionConfigIndexMap: map[int]string{
+			1: "0",
+		},
+	}
+	meta := models.SurveyQuestionMeta{
+		Num:                1,
+		TypeCode:           "4",
+		Options:            3,
+		ProviderQuestionID: "q1",
+		ProviderType:       "multiple",
+	}
+
+	action := buildMultipleAction(cfg, meta, 0, 3, questions.NewRunContextForThread(cfg, runstate.NewExecutionState(), ""))
+	if len(action.SelectedIndices) != 0 {
+		t.Fatalf("selected indices = %#v, want empty when config all zero", action.SelectedIndices)
 	}
 }
 

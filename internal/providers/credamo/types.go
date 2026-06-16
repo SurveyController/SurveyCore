@@ -51,6 +51,7 @@ type CredamoAnswerAction struct {
 	QuestionID      string
 	QuestionType    string
 	SelectedIndices []int
+	OptionFillTexts map[int]string
 	TextValue       string
 	MatrixAnswers   [][]int
 	OrderIndices    []int

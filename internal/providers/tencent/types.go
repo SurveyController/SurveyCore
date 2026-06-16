@@ -52,6 +52,7 @@ type TencentAnswerAction struct {
 	SelectedIDs     []string
 	SelectedTexts   []string
 	SelectedIndices []int
+	OptionFillTexts map[int]string
 	TextValue       string
 	MatrixAnswers   []TencentMatrixRow
 	MatrixIndices   []int

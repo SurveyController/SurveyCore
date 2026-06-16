@@ -47,7 +47,7 @@ func buildSubmitBody(surveyID, hashValue string, rawQuestions []map[string]any, 
 		case "radio", "checkbox", "nps", "star", "select", "dropdown":
 			optsRaw, _ := rq["options"].([]any)
 			var options []map[string]any
-			for _, opt := range optsRaw {
+			for idx, opt := range optsRaw {
 				if optMap, ok := opt.(map[string]any); ok {
 					optID := getString(optMap, "id")
 					checked := 0
@@ -56,11 +56,15 @@ func buildSubmitBody(surveyID, hashValue string, rawQuestions []map[string]any, 
 							checked = 1
 						}
 					}
-					options = append(options, map[string]any{
+					option := map[string]any{
 						"id":      optID,
 						"text":    getString(optMap, "text"),
 						"checked": checked,
-					})
+					}
+					if fill := strings.TrimSpace(action.OptionFillTexts[idx]); fill != "" {
+						option["blanks"] = []map[string]any{{"text": fill}}
+					}
+					options = append(options, option)
 				}
 			}
 			answer["options"] = options

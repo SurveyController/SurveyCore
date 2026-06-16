@@ -1,6 +1,7 @@
 package wjx
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/SurveyController/SurveyCore/internal/execution"
@@ -52,6 +53,37 @@ func TestBuildSingleActionUsesWjxTypeCodeMapping(t *testing.T) {
 	}
 	if actions[3].Kind != "order" || len(actions[3].SelectedIndices) != 3 {
 		t.Fatalf("type 11 action = %#v, want order of 3 options", actions[3])
+	}
+}
+
+func TestBuildChoiceActionUsesDefaultFillTextForFillableOption(t *testing.T) {
+	cfg := &execution.ExecutionConfig{
+		SingleProb: []any{[]float64{0, 1}},
+		QuestionConfigIndexMap: map[int]string{
+			1: "0",
+		},
+		QuestionsMetadata: map[int]models.SurveyQuestionMeta{
+			1: {Num: 1, TypeCode: "3", Options: 2, FillableOptions: []int{1}},
+		},
+		SingleOptionFillTexts: [][]*string{{nil, nil}},
+	}
+
+	plan, err := buildAnswerPlan(cfg, runstate.NewExecutionState(), "")
+	if err != nil {
+		t.Fatalf("buildAnswerPlan returned error: %v", err)
+	}
+	if got := plan.Actions[0].OptionFillTexts[1]; got != "其他" {
+		t.Fatalf("option fill = %q, want 默认占位文本", got)
+	}
+	if submit := buildSubmitData(plan.Actions, cfg); !strings.Contains(submit, "2!其他") {
+		t.Fatalf("submitdata = %q, want filled option placeholder", submit)
+	}
+}
+
+func TestExtractSceneIDUsesPageValue(t *testing.T) {
+	html := `<div data-scene-id="scene-123"></div>`
+	if got := extractSceneID(html); got != "scene-123" {
+		t.Fatalf("sceneId = %q, want scene-123", got)
 	}
 }
 
