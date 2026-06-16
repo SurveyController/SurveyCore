@@ -1,0 +1,4 @@
+interface:
+  display_name: "Config Contract Sync"
+  short_description: "Keep SurveyCore config contracts in sync"
+  default_prompt: "Use $config-contract-sync to keep SurveyCore runtime config contracts aligned across models, defaults, validation, docs, and tests."

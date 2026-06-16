@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Doc Parity"
+  short_description: "Keep SurveyCore API docs and code aligned"
+  default_prompt: "Use $api-doc-parity to update SurveyCore API handlers, response schemas, SDK docs, README examples, and tests together when the HTTP contract changes."

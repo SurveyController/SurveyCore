@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provider Feature Onboarding"
+  short_description: "Scaffold new SurveyCore provider features"
+  default_prompt: "Use $provider-feature-onboarding to scaffold and wire a new provider, parser, answer builder, validator, submit path, and tests inside SurveyCore."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Provider Regression Lab"
+  short_description: "Build provider regression plans for SurveyCore"
+  default_prompt: "Use $provider-regression-lab to build and run a provider-focused regression plan for SurveyCore after parser, builder, submitter, proxy, or scheduler changes."

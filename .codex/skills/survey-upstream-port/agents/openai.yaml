@@ -1,0 +1,4 @@
+interface:
+  display_name: "Survey Upstream Port"
+  short_description: "Port desktop fixes into SurveyCore safely"
+  default_prompt: "Use $survey-upstream-port to map a SurveyController desktop fix or regression into SurveyCore file targets, change types, and a minimal regression set."
