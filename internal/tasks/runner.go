@@ -2,16 +2,14 @@ package tasks
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
-	"github.com/SurveyController/SurveyCore/internal/config"
 	"github.com/SurveyController/SurveyCore/internal/engine"
 	"github.com/SurveyController/SurveyCore/internal/execution"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
 	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
+	"github.com/SurveyController/SurveyCore/internal/surveyrun"
 )
 
 func (m *TaskManager) run(ctx context.Context, id string) {
@@ -62,46 +60,34 @@ func (m *TaskManager) run(ctx context.Context, id string) {
 }
 
 func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, state *runstate.ExecutionState, taskID string) error {
-	config.MergeDefaults(cfg)
-	if cfg.URL == "" {
-		return errors.New("必须提供问卷链接")
-	}
-
-	e := engine.NewEngine(m.registry, nil)
 	m.logTask(taskID, logging.LevelInfo, "解析问卷", logging.F("url", cfg.URL))
-	def, err := e.ParseSurvey(ctx, cfg.URL)
+	hooks := surveyrun.Hooks{
+		OnParsed: func(def *models.SurveyDefinition) {
+			m.logTask(taskID, logging.LevelInfo, "解析成功", logging.F("title", def.Title), logging.F("questions", len(def.Questions)))
+		},
+		OnPrepared: func() {
+			m.updateTask(taskID, func(t *TaskRecord) {
+				t.Config = cloneRuntimeConfig(cfg)
+				t.State = state
+			})
+		},
+		OnEvent: func(event engine.StatusEvent) {
+			level := logging.LevelInfo
+			message := event.StatusText
+			if event.Fail {
+				level = logging.LevelWarn
+			}
+			m.logTaskEvent(taskID, level, message, event)
+			m.updateTask(taskID, func(t *TaskRecord) {
+				t.State = state
+			})
+		},
+	}
+	_, err := surveyrun.New(m.registry, m.applyExecutionDefaults).RunWithHooks(ctx, cfg, state, hooks)
 	if err != nil {
-		return fmt.Errorf("解析问卷失败: %w", err)
+		return err
 	}
-
-	cfg.SurveyTitle = def.Title
-	cfg.SurveyProvider = def.Provider
-	m.logTask(taskID, logging.LevelInfo, "解析成功", logging.F("title", def.Title), logging.F("questions", len(def.Questions)))
-
-	execCfg, err := config.BuildExecutionConfigWithError(cfg, def.Questions)
-	if err != nil {
-		return fmt.Errorf("准备执行配置失败: %w", err)
-	}
-	m.applyExecutionDefaults(execCfg)
-	state.Config = execCfg
-	m.updateTask(taskID, func(t *TaskRecord) {
-		t.Config = cloneRuntimeConfig(cfg)
-		t.State = state
-	})
-
-	handler := func(event engine.StatusEvent) {
-		level := logging.LevelInfo
-		message := event.StatusText
-		if event.Fail {
-			level = logging.LevelWarn
-		}
-		m.logTaskEvent(taskID, level, message, event)
-		m.updateTask(taskID, func(t *TaskRecord) {
-			t.State = state
-		})
-	}
-	runner := engine.NewEngine(m.registry, handler)
-	return runner.Run(ctx, execCfg, state)
+	return nil
 }
 
 func (m *TaskManager) applyExecutionDefaults(cfg *execution.ExecutionConfig) {
