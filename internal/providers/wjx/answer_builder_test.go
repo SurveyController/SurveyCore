@@ -87,6 +87,26 @@ func TestExtractSceneIDUsesPageValue(t *testing.T) {
 	}
 }
 
+func TestResolveChannelProfileMatchesUserAgentCategory(t *testing.T) {
+	wechat := resolveChannelProfile(defaultUserAgent, "wechat")
+	if wechat.Source != "微信" || wechat.ExtraParams["iwx"] != "1" {
+		t.Fatalf("wechat profile = %#v", wechat)
+	}
+	mobile := resolveChannelProfile(userAgentProfilesForTest["mobile"], "mobile")
+	if mobile.Source != "手机访问" || len(mobile.ExtraParams) != 0 {
+		t.Fatalf("mobile profile = %#v", mobile)
+	}
+	pc := resolveChannelProfile(userAgentProfilesForTest["pc"], "pc")
+	if pc.Source != "直链访问" || len(pc.ExtraParams) != 0 {
+		t.Fatalf("pc profile = %#v", pc)
+	}
+}
+
+var userAgentProfilesForTest = map[string]string{
+	"mobile": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+	"pc":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+}
+
 func TestBuildSubmitDataFormatsCommonActions(t *testing.T) {
 	sliderValue := 66.5
 	got := buildSubmitData([]AnswerAction{

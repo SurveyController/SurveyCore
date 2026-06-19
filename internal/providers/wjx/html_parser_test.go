@@ -187,4 +187,17 @@ func TestParseHTMLTreatsWjxMobileJumpOneAndMinusOneAsTerminate(t *testing.T) {
 			t.Fatalf("jump rule = %#v, want terminates_survey true", rule)
 		}
 	}
+	if got.JumpRules[1]["jumpto"] != -1 {
+		t.Fatalf("second jump target = %#v, want -1", got.JumpRules[1])
+	}
+}
+
+func TestBuildNotOpenMessageFormatsChineseDateWithSeconds(t *testing.T) {
+	html := `<div id="divTip">此问卷将于 2026年6月9日 8时5分30秒 开放，请到时再进入此页面进行填写</div>`
+
+	got := buildNotOpenMessage(html)
+
+	if got != "该问卷暂未开放，无法解析，开放时间：2026-06-09 08:05:30" {
+		t.Fatalf("message = %q", got)
+	}
 }

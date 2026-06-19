@@ -259,6 +259,9 @@ func parseProxy(addr string) *string {
 		return nil
 	}
 	v := strings.TrimSpace(addr)
+	if !strings.Contains(v, "://") {
+		v = "http://" + v
+	}
 	return &v
 }
 

@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/SurveyController/SurveyCore/internal/models"
 )
 
 func TestParseProxyFromNestedJSON(t *testing.T) {
@@ -59,6 +62,23 @@ func TestFetchFromCustomParsesCredentials(t *testing.T) {
 	}
 	if got := ExtractProxyAddress(leases[0].Address); got != "http://user:pass@4.4.4.4:8080" {
 		t.Fatalf("normalized proxy = %q", got)
+	}
+}
+
+func TestPoolSkipsLeasesBelowHTTPSubmitTTL(t *testing.T) {
+	pool := NewPool("custom", "https://proxy.example.test/list")
+	pool.AddLeases([]models.ProxyLease{
+		{Address: "http://1.1.1.1:8000", ExpireTS: float64(time.Now().Add(30 * time.Second).Unix()), Poolable: true},
+		{Address: "http://2.2.2.2:8000", ExpireTS: float64(time.Now().Add(60 * time.Second).Unix()), Poolable: true},
+	})
+
+	lease := pool.Pop()
+
+	if lease == nil || lease.Address != "http://2.2.2.2:8000" {
+		t.Fatalf("lease = %#v, want second lease with sufficient ttl", lease)
+	}
+	if next := pool.Pop(); next != nil {
+		t.Fatalf("next lease = %#v, want nil", next)
 	}
 }
 

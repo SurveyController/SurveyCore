@@ -9,6 +9,8 @@ import (
 	"github.com/SurveyController/SurveyCore/internal/models"
 )
 
+const HTTPProxyMinRemainingTTLSeconds = 50
+
 // Pool manages a pool of proxy leases.
 type Pool struct {
 	mu              sync.RWMutex
@@ -100,6 +102,10 @@ func (p *Pool) Pop() *models.ProxyLease {
 		if lease.ExpireTS > 0 && now.Unix() > int64(lease.ExpireTS) {
 			continue
 		}
+		// Skip leases that may expire during a HTTP submit.
+		if !lease.HasSufficientTTL(HTTPProxyMinRemainingTTLSeconds) {
+			continue
+		}
 		// Skip in cooldown
 		if until, ok := p.cooldown[lease.Address]; ok && now.Before(until) {
 			continue
@@ -150,7 +156,16 @@ func (p *Pool) FetchBatch(count int) ([]models.ProxyLease, error) {
 func (p *Pool) AddLeases(leases []models.ProxyLease) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.leases = append(p.leases, leases...)
+	for _, lease := range leases {
+		lease.Address = strings.TrimSpace(lease.Address)
+		if lease.Address == "" || lease.IsExpired() || !lease.HasSufficientTTL(HTTPProxyMinRemainingTTLSeconds) {
+			continue
+		}
+		if !lease.Poolable && lease.ExpireAt != "" {
+			lease.Poolable = true
+		}
+		p.leases = append(p.leases, lease)
+	}
 }
 
 // CleanupExpired removes expired leases and cooldowns.

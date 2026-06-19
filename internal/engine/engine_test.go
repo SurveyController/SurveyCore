@@ -43,6 +43,10 @@ func TestSampleUserAgentHonorsDisabledAndRatios(t *testing.T) {
 	if ua != userAgentProfiles["pc"] {
 		t.Fatalf("UA = %q, want pc profile", ua)
 	}
+	profile := sampleUserAgentProfile(cfg)
+	if profile.Category != "pc" || profile.UserAgent != userAgentProfiles["pc"] {
+		t.Fatalf("profile = %#v, want pc profile", profile)
+	}
 }
 
 func TestSampleUserAgentSkipsZeroWeightProfiles(t *testing.T) {

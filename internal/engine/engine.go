@@ -13,6 +13,7 @@ import (
 
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
+	networkproxy "github.com/SurveyController/SurveyCore/internal/network/proxy"
 )
 
 // StatusEvent represents a status update from the engine.
@@ -84,6 +85,18 @@ func (e *Engine) Run(ctx context.Context, cfg *execution.ExecutionConfig, state 
 	scheduler.Start()
 	defer scheduler.Close()
 
+	var proxyPool *networkproxy.Pool
+	if cfg.RandomProxyIPEnabled {
+		proxyPool = networkproxy.NewPool(
+			cfg.ProxySource,
+			cfg.CustomProxyAPI,
+			networkproxy.WithOfficialEndpoint(cfg.IPExtractEndpoint),
+			networkproxy.WithOfficialCredentials(cfg.RandomIPUserID, cfg.RandomIPDeviceID),
+			networkproxy.WithOfficialAreaCode(cfg.ProxyAreaCode),
+			networkproxy.WithOfficialMinute(cfg.RandomIPLeaseMinute),
+		)
+	}
+
 	var wg sync.WaitGroup
 
 	// Start worker goroutines
@@ -91,7 +104,7 @@ func (e *Engine) Run(ctx context.Context, cfg *execution.ExecutionConfig, state 
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			e.worker(ctx, adapter, cfg, state, scheduler, workerID)
+			e.worker(ctx, adapter, cfg, state, scheduler, proxyPool, workerID)
 		}(i)
 	}
 
@@ -121,7 +134,7 @@ func (e *Engine) Run(ctx context.Context, cfg *execution.ExecutionConfig, state 
 	}
 }
 
-func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg *execution.ExecutionConfig, state *runstate.ExecutionState, scheduler *Scheduler, workerID int) {
+func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg *execution.ExecutionConfig, state *runstate.ExecutionState, scheduler *Scheduler, proxyPool *networkproxy.Pool, workerID int) {
 	threadName := fmt.Sprintf("Worker-%d", workerID+1)
 
 	for {
@@ -176,7 +189,7 @@ func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg
 		}
 
 		// Execute one submission
-		success := e.executeOne(ctx, adapter, cfg, state, threadName)
+		success := e.executeOne(ctx, adapter, cfg, state, proxyPool, threadName)
 
 		if state.IsStopped() && !success {
 			state.AbortSubmissionReservation()
@@ -213,7 +226,7 @@ func (e *Engine) worker(ctx context.Context, adapter models.ProviderAdapter, cfg
 	}
 }
 
-func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter, cfg *execution.ExecutionConfig, state *runstate.ExecutionState, threadName string) bool {
+func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter, cfg *execution.ExecutionConfig, state *runstate.ExecutionState, proxyPool *networkproxy.Pool, threadName string) bool {
 	running := true
 	state.UpdateThreadStatus(threadName, "构造答案", &running)
 	defer func() {
@@ -221,10 +234,19 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 		state.UpdateThreadStatus(threadName, "等待中", &running)
 	}()
 
+	uaProfile := sampleUserAgentProfile(cfg)
+	proxyAddress, err := e.selectSubmitProxy(ctx, cfg, proxyPool, threadName)
+	if err != nil {
+		logging.WarnFields("获取提交代理失败", logging.F("worker", threadName), logging.F("error", err))
+		return false
+	}
+
 	opts := models.FillOptions{
-		ThreadName: threadName,
-		UserAgent:  sampleUserAgent(cfg),
-		StopChan:   state.StopChan,
+		ThreadName:        threadName,
+		ProxyAddress:      proxyAddress,
+		UserAgent:         uaProfile.UserAgent,
+		UserAgentCategory: uaProfile.Category,
+		StopChan:          state.StopChan,
 	}
 
 	state.UpdateThreadStatus(threadName, "提交问卷", &running)
@@ -239,6 +261,33 @@ func (e *Engine) executeOne(ctx context.Context, adapter models.ProviderAdapter,
 		state.UpdateThreadStatus(threadName, "提交成功", &running)
 	}
 	return success
+}
+
+func (e *Engine) selectSubmitProxy(ctx context.Context, cfg *execution.ExecutionConfig, proxyPool *networkproxy.Pool, threadName string) (string, error) {
+	if cfg == nil || !cfg.RandomProxyIPEnabled {
+		return "", nil
+	}
+	if proxyPool == nil {
+		return "", fmt.Errorf("随机 IP 已启用，但代理池未初始化")
+	}
+	if lease := proxyPool.Pop(); lease != nil {
+		return networkproxy.ExtractProxyAddress(lease.Address), nil
+	}
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+	leases, err := proxyPool.FetchBatch(1)
+	if err != nil {
+		return "", err
+	}
+	proxyPool.AddLeases(leases)
+	lease := proxyPool.Pop()
+	if lease == nil {
+		return "", fmt.Errorf("线程[%s]提交前未获取到随机 IP", threadName)
+	}
+	return networkproxy.ExtractProxyAddress(lease.Address), nil
 }
 
 func (e *Engine) emit(threadName, statusText string, success, fail bool, state *runstate.ExecutionState) {
@@ -288,9 +337,21 @@ var userAgentProfiles = map[string]string{
 	"pc":     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 }
 
+type userAgentProfile struct {
+	Category  string
+	UserAgent string
+}
+
 func sampleUserAgent(cfg *execution.ExecutionConfig) string {
+	return sampleUserAgentProfile(cfg).UserAgent
+}
+
+func sampleUserAgentProfile(cfg *execution.ExecutionConfig) userAgentProfile {
+	if cfg == nil {
+		return userAgentProfile{}
+	}
 	if !cfg.RandomUserAgentEnabled {
-		return ""
+		return userAgentProfile{}
 	}
 	keys := cfg.RandomUserAgentKeys
 	if len(keys) == 0 {
@@ -317,9 +378,9 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 	}
 	if total <= 0 {
 		if hasConfiguredRatio {
-			return ""
+			return userAgentProfile{}
 		}
-		return ""
+		return userAgentProfile{}
 	}
 
 	pick := rand.Intn(total)
@@ -336,11 +397,11 @@ func sampleUserAgent(cfg *execution.ExecutionConfig) string {
 			continue
 		}
 		if pick < weight {
-			return ua
+			return userAgentProfile{Category: key, UserAgent: ua}
 		}
 		pick -= weight
 	}
-	return ""
+	return userAgentProfile{}
 }
 
 // ParseSurvey parses a survey URL using the appropriate provider.

@@ -18,10 +18,11 @@ const (
 )
 
 type FillOptions struct {
-	ThreadName   string
-	ProxyAddress string
-	UserAgent    string
-	StopChan     <-chan struct{}
+	ThreadName        string
+	ProxyAddress      string
+	UserAgent         string
+	UserAgentCategory string
+	StopChan          <-chan struct{}
 }
 
 type SurveyQuestionMeta struct {

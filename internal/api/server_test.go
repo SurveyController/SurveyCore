@@ -41,14 +41,28 @@ func TestCreateTaskReturnsTaskID(t *testing.T) {
 	}
 }
 
-func TestCreateTaskRejectsUnknownLegacyFields(t *testing.T) {
+func TestCreateTaskAcceptsRandomProxyFields(t *testing.T) {
 	server := newTestServer(t)
 	reqBody := `{
 		"url":"https://www.wjx.cn/vm/test.aspx",
 		"target":1,
-		"proxy_source":"default"
+		"random_ip_enabled":true,
+		"proxy_source":"custom",
+		"custom_proxy_api":"https://proxy.example.test/list"
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(reqBody))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s, want 202", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateTaskRejectsUnknownFields(t *testing.T) {
+	server := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(`{"url":"https://www.wjx.cn/vm/test.aspx","target":1,"unknown_field":true}`))
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
@@ -57,8 +71,8 @@ func TestCreateTaskRejectsUnknownLegacyFields(t *testing.T) {
 		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 	apiErr := decodeAPIError(t, rec)
-	if apiErr.Code != "invalid_json" || apiErr.Detail == "" {
-		t.Fatalf("error = %#v, want invalid_json with detail", apiErr)
+	if apiErr.Code != "invalid_json" || apiErr.Message == "" || apiErr.Detail == "" {
+		t.Fatalf("error = %#v, want invalid_json with message and detail", apiErr)
 	}
 }
 
@@ -78,7 +92,7 @@ func TestCreateTaskRejectsInvalidJSONWithStructuredError(t *testing.T) {
 	}
 }
 
-func TestCreateConfigOmitsRemovedSDKFields(t *testing.T) {
+func TestCreateConfigIncludesRandomProxyFields(t *testing.T) {
 	server := newTestServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/configs", strings.NewReader(`{"url":""}`))
 	rec := httptest.NewRecorder()
@@ -92,7 +106,7 @@ func TestCreateConfigOmitsRemovedSDKFields(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	removedFields := []string{
+	wantFields := []string{
 		"random_ip_enabled",
 		"proxy_source",
 		"custom_proxy_api",
@@ -101,6 +115,13 @@ func TestCreateConfigOmitsRemovedSDKFields(t *testing.T) {
 		"random_ip_device_id",
 		"ip_extract_endpoint",
 		"random_ip_lease_minute",
+	}
+	for _, field := range wantFields {
+		if _, ok := body[field]; !ok {
+			t.Fatalf("response missing proxy field %q: %s", field, rec.Body.String())
+		}
+	}
+	removedFields := []string{
 		"fail_stop_enabled",
 		"pause_on_aliyun_captcha",
 		"ai_mode",

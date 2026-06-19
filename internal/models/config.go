@@ -22,6 +22,14 @@ type RuntimeConfig struct {
 	RandomUAEnabled        bool                 `json:"random_ua_enabled,omitempty"`
 	RandomUAKeys           []string             `json:"random_ua_keys,omitempty"`
 	RandomUARatios         map[string]int       `json:"random_ua_ratios,omitempty"`
+	RandomIPEnabled        bool                 `json:"random_ip_enabled"`
+	ProxySource            string               `json:"proxy_source"`
+	CustomProxyAPI         string               `json:"custom_proxy_api"`
+	ProxyAreaCode          string               `json:"proxy_area_code"`
+	RandomIPUserID         int                  `json:"random_ip_user_id"`
+	RandomIPDeviceID       string               `json:"random_ip_device_id"`
+	IPExtractEndpoint      string               `json:"ip_extract_endpoint"`
+	RandomIPLeaseMinute    int                  `json:"random_ip_lease_minute"`
 	ReliabilityModeEnabled bool                 `json:"reliability_mode_enabled,omitempty"`
 	PsychoTargetAlpha      float64              `json:"psycho_target_alpha,omitempty"`
 	ReverseFillEnabled     bool                 `json:"reverse_fill_enabled,omitempty"`
@@ -49,6 +57,8 @@ func NewDefaultRuntimeConfig() RuntimeConfig {
 		ReverseFillThreads:     1,
 		RandomUAKeys:           append([]string{}, DefaultRandomUAKeys...),
 		RandomUARatios:         map[string]int{"wechat": 33, "mobile": 33, "pc": 34},
+		ProxySource:            "default",
+		RandomIPLeaseMinute:    1,
 	}
 }
 

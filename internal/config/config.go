@@ -67,6 +67,12 @@ func MergeDefaults(cfg *models.RuntimeConfig) {
 	if cfg.RandomUARatios == nil {
 		cfg.RandomUARatios = defaults.RandomUARatios
 	}
+	if strings.TrimSpace(cfg.ProxySource) == "" {
+		cfg.ProxySource = defaults.ProxySource
+	}
+	if cfg.RandomIPLeaseMinute <= 0 {
+		cfg.RandomIPLeaseMinute = defaults.RandomIPLeaseMinute
+	}
 }
 
 // BuildExecutionConfig creates an ExecutionConfig from a RuntimeConfig.
@@ -91,6 +97,14 @@ func BuildExecutionConfigWithError(cfg *models.RuntimeConfig, questions []models
 		RandomUserAgentEnabled:      cfg.RandomUAEnabled,
 		RandomUserAgentKeys:         append([]string{}, cfg.RandomUAKeys...),
 		UserAgentRatios:             cfg.RandomUARatios,
+		RandomProxyIPEnabled:        cfg.RandomIPEnabled,
+		ProxySource:                 strings.TrimSpace(cfg.ProxySource),
+		CustomProxyAPI:              strings.TrimSpace(cfg.CustomProxyAPI),
+		ProxyAreaCode:               strings.TrimSpace(cfg.ProxyAreaCode),
+		RandomIPUserID:              cfg.RandomIPUserID,
+		RandomIPDeviceID:            strings.TrimSpace(cfg.RandomIPDeviceID),
+		IPExtractEndpoint:           strings.TrimSpace(cfg.IPExtractEndpoint),
+		RandomIPLeaseMinute:         cfg.RandomIPLeaseMinute,
 		PsychoTargetAlpha:           cfg.PsychoTargetAlpha,
 		AnswerRules:                 cfg.AnswerRules,
 		SingleProb:                  make([]any, entryCount),

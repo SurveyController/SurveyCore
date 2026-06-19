@@ -12,11 +12,11 @@ import (
 
 var (
 	pausedSurveyIDRe  = regexp.MustCompile(`此问卷[（(]\d+[）)]已暂停`)
-	notOpenTimeRe     = regexp.MustCompile(`此问卷将于\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2}\s+\d{1,2}:\d{2})\s*开放`)
+	notOpenTimeRe     = regexp.MustCompile(`此问卷将于\s*(\d{4})\s*(?:-|/|年)\s*(\d{1,2})\s*(?:-|/|月)\s*(\d{1,2})\s*(?:日)?\s*(\d{1,2})\s*(?::|时)\s*(\d{1,2})(?:\s*(?::|分)\s*(\d{1,2})\s*秒?)?\s*开放`)
 	leadingTitleNumRe = regexp.MustCompile(`^\s*\*?\s*(\d+)\s*[.．、]\s*(.*)$`)
 	forcedLetterRe    = regexp.MustCompile(`(?i)(?:请|务必|直接)?(?:选择|选|勾选)\s*([A-Z])\s*(?:项|选项)?`)
 	forcedIndexRe     = regexp.MustCompile(`(?:请|务必|直接)?(?:选择|选|勾选)?\s*第\s*(\d+)\s*(?:项|个)?`)
-	digitRe           = regexp.MustCompile(`\d+`)
+	jumpTargetRe      = regexp.MustCompile(`^\s*(?:(-?\d+)|跳到第\s*(\d+)\s*题)\s*$`)
 )
 
 // Survey page state error types
@@ -81,10 +81,26 @@ func buildNotOpenMessage(html string) string {
 		return ""
 	}
 	if match := notOpenTimeRe.FindStringSubmatch(text); match != nil {
-		openTime := strings.ReplaceAll(match[1], "/", "-")
+		openTime := formatNotOpenTime(match)
 		return fmt.Sprintf("该问卷暂未开放，无法解析，开放时间：%s", openTime)
 	}
 	return "该问卷暂未开放，无法解析"
+}
+
+func formatNotOpenTime(match []string) string {
+	if len(match) < 6 {
+		return ""
+	}
+	year, _ := strconv.Atoi(match[1])
+	month, _ := strconv.Atoi(match[2])
+	day, _ := strconv.Atoi(match[3])
+	hour, _ := strconv.Atoi(match[4])
+	minute, _ := strconv.Atoi(match[5])
+	if len(match) > 6 && strings.TrimSpace(match[6]) != "" {
+		second, _ := strconv.Atoi(match[6])
+		return fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second)
+	}
+	return fmt.Sprintf("%04d-%02d-%02d %02d:%02d", year, month, day, hour, minute)
 }
 
 // ParseHTML parses a WJX survey HTML page into question metadata and title.
@@ -513,14 +529,15 @@ func parseJumpTarget(value string) int {
 	if value == "" {
 		return 0
 	}
-	if parsed, err := strconv.Atoi(value); err == nil {
-		return parsed
-	}
-	match := digitRe.FindString(value)
-	if match == "" {
+	match := jumpTargetRe.FindStringSubmatch(value)
+	if match == nil {
 		return 0
 	}
-	parsed, err := strconv.Atoi(match)
+	targetText := match[1]
+	if targetText == "" {
+		targetText = match[2]
+	}
+	parsed, err := strconv.Atoi(targetText)
 	if err != nil {
 		return 0
 	}

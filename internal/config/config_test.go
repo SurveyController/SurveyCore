@@ -10,14 +10,22 @@ import (
 func TestBuildExecutionConfigKeepsQuestionEntryIndices(t *testing.T) {
 	q1, q2, q3, q4 := 1, 2, 3, 4
 	cfg := &models.RuntimeConfig{
-		URL:               "https://www.wjx.cn/vm/test.aspx",
-		SurveyProvider:    models.ProviderWJX,
-		Target:            10,
-		Threads:           3,
-		RandomUAEnabled:   true,
-		RandomUAKeys:      []string{"pc", "mobile"},
-		RandomUARatios:    map[string]int{"pc": 70, "mobile": 30},
-		PsychoTargetAlpha: 0.9,
+		URL:                 "https://www.wjx.cn/vm/test.aspx",
+		SurveyProvider:      models.ProviderWJX,
+		Target:              10,
+		Threads:             3,
+		RandomUAEnabled:     true,
+		RandomUAKeys:        []string{"pc", "mobile"},
+		RandomUARatios:      map[string]int{"pc": 70, "mobile": 30},
+		RandomIPEnabled:     true,
+		ProxySource:         "custom",
+		CustomProxyAPI:      "https://proxy.example.test/list",
+		ProxyAreaCode:       "110100",
+		RandomIPUserID:      99,
+		RandomIPDeviceID:    "device-99",
+		IPExtractEndpoint:   "https://proxy.example.test/extract",
+		RandomIPLeaseMinute: 3,
+		PsychoTargetAlpha:   0.9,
 		QuestionEntries: []models.QuestionEntry{
 			{QuestionNum: &q1, QuestionType: "single", Probabilities: []any{0.1, 0.9}, AttachedOptionSelects: []map[string]any{{"option_index": 1}}},
 			{QuestionNum: &q2, QuestionType: "multiple", Probabilities: []any{0.8, 0.2}},
@@ -51,6 +59,15 @@ func TestBuildExecutionConfigKeepsQuestionEntryIndices(t *testing.T) {
 	}
 	if !execCfg.RandomUserAgentEnabled || len(execCfg.RandomUserAgentKeys) != 2 {
 		t.Fatal("random user agent settings were not copied")
+	}
+	if !execCfg.RandomProxyIPEnabled || execCfg.ProxySource != "custom" || execCfg.CustomProxyAPI == "" {
+		t.Fatalf("random proxy settings were not copied: %#v", execCfg)
+	}
+	if execCfg.ProxyAreaCode != "110100" || execCfg.RandomIPUserID != 99 || execCfg.RandomIPDeviceID != "device-99" {
+		t.Fatalf("official proxy settings were not copied: %#v", execCfg)
+	}
+	if execCfg.IPExtractEndpoint != "https://proxy.example.test/extract" || execCfg.RandomIPLeaseMinute != 3 {
+		t.Fatalf("proxy endpoint/minute = %q/%d", execCfg.IPExtractEndpoint, execCfg.RandomIPLeaseMinute)
 	}
 }
 

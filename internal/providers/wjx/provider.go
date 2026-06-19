@@ -117,6 +117,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 	if ua == "" {
 		ua = defaultUserAgent
 	}
+	channel := resolveChannelProfile(ua, opts.UserAgentCategory)
 
 	headers := map[string]string{
 		"User-Agent": ua,
@@ -125,8 +126,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 	}
 
 	// Load the survey page first to validate state
-	proxyAddr := parseProxyAddress(opts.ProxyAddress)
-	resp, err := httpclient.Get(ctx, surveyURL, headers, proxyAddr, 15*time.Second)
+	resp, err := httpclient.Get(ctx, surveyURL, headers, nil, 15*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("无法加载问卷页面: %w", err)
 	}
@@ -162,7 +162,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 	params.Set("shortid", shortID)
 	params.Set("starttime", formatWjxStarttime(startSeconds))
 	params.Set("cst", fmt.Sprintf("%d", startSeconds*1000))
-	params.Set("source", "directphone")
+	params.Set("source", channel.Source)
 	params.Set("submittype", "1")
 	params.Set("ktimes", fmt.Sprintf("%d", ktimes))
 	params.Set("rn", fmt.Sprintf("%.0f", 2000000000+rand.Float64()*100000000))
@@ -172,14 +172,11 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 	params.Set("jpm", "62")
 	params.Set("capt", "2")
 	params.Set("t", fmt.Sprintf("%d", currentMS))
-	params.Set("wxfs", "100")
 	params.Set("jqnonce", jqnonce)
 	params.Set("jqsign", buildJqsign(jqnonce, ktimes))
-	params.Set("access_token", "1")
-	params.Set("openid", fmt.Sprintf("%d", 100000000+rand.Intn(900000000)))
-	params.Set("unionId", fmt.Sprintf("%d", 100000000+rand.Intn(900000000)))
-	params.Set("wxappid", "wx8fe84c5d52db247a")
-	params.Set("iwx", "1")
+	for key, value := range channel.ExtraParams {
+		params.Set(key, value)
+	}
 
 	submitURL := fmt.Sprintf("https://%s/joinnew/processjq.ashx?%s", domain, params.Encode())
 
@@ -194,6 +191,7 @@ func (p *Provider) FillSurveyHTTP(ctx context.Context, cfg *execution.ExecutionC
 
 	// Submit
 	submitBody := fmt.Sprintf("submitdata=%s&sceneId=%s", url.QueryEscape(submitData), url.QueryEscape(extractSceneID(html)))
+	proxyAddr := parseProxyAddress(opts.ProxyAddress)
 	submitResp, err := httpclient.Post(ctx, submitURL, submitBody, submitHeaders, proxyAddr, 20*time.Second)
 	if err != nil {
 		return false, fmt.Errorf("提交问卷失败: %w", err)
@@ -258,6 +256,42 @@ func extractSceneID(pageHTML string) string {
 		}
 	}
 	return "q0hcfsca"
+}
+
+type channelProfile struct {
+	Source      string
+	ExtraParams map[string]string
+}
+
+func resolveChannelProfile(userAgent, category string) channelProfile {
+	category = strings.ToLower(strings.TrimSpace(category))
+	if category == "" {
+		if strings.Contains(strings.ToLower(userAgent), "micromessenger") {
+			category = "wechat"
+		} else if strings.Contains(strings.ToLower(userAgent), "mobile") {
+			category = "mobile"
+		} else {
+			category = "pc"
+		}
+	}
+	switch category {
+	case "wechat":
+		return channelProfile{
+			Source: "微信",
+			ExtraParams: map[string]string{
+				"wxfs":         "100",
+				"access_token": "1",
+				"openid":       fmt.Sprintf("%d", 100000000+rand.Intn(900000000)),
+				"unionId":      fmt.Sprintf("%d", 100000000+rand.Intn(900000000)),
+				"wxappid":      "wx8fe84c5d52db247a",
+				"iwx":          "1",
+			},
+		}
+	case "mobile":
+		return channelProfile{Source: "手机访问"}
+	default:
+		return channelProfile{Source: "直链访问"}
+	}
 }
 
 func formatWjxStarttime(timestampSeconds int) string {
@@ -361,6 +395,9 @@ func parseProxyAddress(addr string) *string {
 		return nil
 	}
 	v := strings.TrimSpace(addr)
+	if !strings.Contains(v, "://") {
+		v = "http://" + v
+	}
 	return &v
 }
 
