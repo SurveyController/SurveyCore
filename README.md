@@ -40,6 +40,25 @@ go build -o surveycore ./cmd/surveycore
 
 见 https://surveydoc.hungrym0.com/sdk
 
+## 架构概览
+
+```mermaid
+flowchart TD
+    Client[HTTP 客户端] --> API[internal/api<br/>HTTP 路由与响应]
+    API --> Tasks[internal/tasks<br/>任务生命周期]
+    Tasks --> Store[(SQLite<br/>任务与日志)]
+    Tasks --> Config[internal/config<br/>运行配置生成]
+    Tasks --> Engine[internal/engine<br/>并发提交引擎]
+    Engine --> Runtime[internal/runtime<br/>执行状态]
+    Engine --> Providers[internal/providers<br/>平台适配器]
+    Providers --> WJX[问卷星]
+    Providers --> Tencent[腾讯问卷]
+    Providers --> Credamo[Credamo 见数]
+    Providers --> Network[internal/network<br/>HTTP 与代理]
+    Config --> Execution[internal/execution<br/>执行快照]
+    Engine --> Execution
+```
+
 ## 服务地址
 
 默认监听：
