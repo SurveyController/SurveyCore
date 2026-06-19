@@ -5,19 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"sort"
 	"sync"
 	"time"
 
-	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
-
-	"github.com/SurveyController/SurveyCore/internal/config"
 	"github.com/SurveyController/SurveyCore/internal/engine"
 	"github.com/SurveyController/SurveyCore/internal/execution"
 	"github.com/SurveyController/SurveyCore/internal/logging"
 	"github.com/SurveyController/SurveyCore/internal/models"
-	"github.com/SurveyController/SurveyCore/internal/providers"
 )
 
 type TaskManager struct {
@@ -180,116 +175,6 @@ func (m *TaskManager) ParseSurvey(ctx context.Context, surveyURL string) (*model
 	return engine.NewEngine(m.registry, nil).ParseSurvey(ctx, surveyURL)
 }
 
-func (m *TaskManager) BuildDefaultConfig(ctx context.Context, surveyURL string) (*models.RuntimeConfig, error) {
-	cfg := models.NewDefaultRuntimeConfig()
-	cfg.URL = surveyURL
-	if cfg.URL == "" {
-		return &cfg, nil
-	}
-	def, err := m.ParseSurvey(ctx, cfg.URL)
-	if err != nil {
-		return nil, err
-	}
-	cfg.SurveyTitle = def.Title
-	cfg.SurveyProvider = def.Provider
-	cfg.QuestionsInfo = models.CloneSurveyQuestionMetas(def.Questions)
-	cfg.QuestionEntries = config.BuildDefaultQuestionEntries(def.Questions, nil)
-	return &cfg, nil
-}
-
-func (m *TaskManager) run(ctx context.Context, id string) {
-	task, ok := m.getInternal(id)
-	if !ok {
-		return
-	}
-	start := time.Now()
-	m.updateTask(id, func(t *TaskRecord) {
-		t.Status = TaskRunning
-		t.StartedAt = &start
-	})
-	m.logTask(id, logging.LevelInfo, "开始执行", logging.F("target", task.Config.Target), logging.F("threads", task.Config.Threads))
-
-	state := runstate.NewExecutionState()
-	err := m.execute(ctx, task.Config, state, id)
-
-	finished := time.Now()
-	m.mu.Lock()
-	current := m.tasks[id]
-	if current == nil {
-		m.mu.Unlock()
-		return
-	}
-	current.State = state
-	current.FinishedAt = &finished
-	delete(m.runtimes, id)
-	if current.Status == TaskStopped || ctx.Err() != nil {
-		current.Status = TaskStopped
-		if current.StopMessage == "" {
-			current.StopMessage = "任务已停止"
-		}
-	} else if err != nil {
-		current.Status = TaskFailed
-		current.Error = err.Error()
-	} else {
-		current.Status = TaskSucceeded
-	}
-	snapshot := cloneTask(current)
-	m.mu.Unlock()
-
-	if err != nil {
-		m.logTask(id, logging.LevelError, "执行失败", logging.F("error", err))
-	} else {
-		m.logTask(id, logging.LevelInfo, "执行完成", logging.F("success", state.GetCurNum()), logging.F("fail", state.GetCurFail()))
-	}
-	m.saveTask(snapshot)
-}
-
-func (m *TaskManager) execute(ctx context.Context, cfg *models.RuntimeConfig, state *runstate.ExecutionState, taskID string) error {
-	config.MergeDefaults(cfg)
-	if cfg.URL == "" {
-		return errors.New("必须提供问卷链接")
-	}
-
-	e := engine.NewEngine(m.registry, nil)
-	m.logTask(taskID, logging.LevelInfo, "解析问卷", logging.F("url", cfg.URL))
-	def, err := e.ParseSurvey(ctx, cfg.URL)
-	if err != nil {
-		return fmt.Errorf("解析问卷失败: %w", err)
-	}
-
-	cfg.SurveyTitle = def.Title
-	cfg.SurveyProvider = def.Provider
-	m.logTask(taskID, logging.LevelInfo, "解析成功", logging.F("title", def.Title), logging.F("questions", len(def.Questions)))
-
-	execCfg, err := config.BuildExecutionConfigWithError(cfg, def.Questions)
-	if err != nil {
-		return fmt.Errorf("准备执行配置失败: %w", err)
-	}
-	m.applyExecutionDefaults(execCfg)
-	state.Config = execCfg
-	m.updateTask(taskID, func(t *TaskRecord) {
-		t.Config = cloneRuntimeConfig(cfg)
-		t.State = state
-	})
-
-	handler := func(event engine.StatusEvent) {
-		level := logging.LevelInfo
-		message := event.StatusText
-		if event.Fail {
-			level = logging.LevelWarn
-		}
-		m.logTaskEvent(taskID, level, message, event)
-		m.updateTask(taskID, func(t *TaskRecord) {
-			t.State = state
-		})
-	}
-	runner := engine.NewEngine(m.registry, handler)
-	if err := runner.Run(ctx, execCfg, state); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (m *TaskManager) updateTask(id string, mutate func(*TaskRecord)) {
 	m.mu.Lock()
 	task := m.tasks[id]
@@ -313,125 +198,10 @@ func (m *TaskManager) getInternal(id string) (*TaskRecord, bool) {
 	return cloneTask(task), true
 }
 
-func (m *TaskManager) logTask(id string, level logging.Level, message string, fields ...logging.Field) {
-	m.consoleLog(level, message, id, fields...)
-	entry := TaskLog{Timestamp: time.Now(), Level: logLevelName(level), Message: message, Fields: map[string]any{"task_id": id}}
-	for _, field := range fields {
-		entry.Fields[field.Key] = field.Value
-	}
-	m.appendLog(id, entry)
-}
-
-func (m *TaskManager) logTaskEvent(id string, level logging.Level, message string, event engine.StatusEvent) {
-	m.consoleLog(level, message, id,
-		logging.F("worker", event.ThreadName),
-		logging.F("current", event.Current),
-		logging.F("total", event.Total),
-	)
-	entry := TaskLog{
-		Timestamp: time.Now(),
-		Level:     logLevelName(level),
-		Message:   message,
-		Fields: map[string]any{
-			"task_id": id,
-			"worker":  event.ThreadName,
-			"current": event.Current,
-			"total":   event.Total,
-		},
-		Event: &event,
-	}
-	m.appendLog(id, entry)
-}
-
-func (m *TaskManager) appendLog(id string, entry TaskLog) {
-	if err := m.store.AppendLog(id, entry); err != nil {
-		logging.ErrorFields("写入任务日志失败", logging.F("task_id", id), logging.F("error", err))
-	}
-}
-
-func (m *TaskManager) saveTask(task *TaskRecord) {
-	if err := m.store.SaveTask(task); err != nil {
-		logging.ErrorFields("保存任务状态失败", logging.F("task_id", task.ID), logging.F("error", err))
-	}
-}
-
-func (m *TaskManager) applyExecutionDefaults(cfg *execution.ExecutionConfig) {
-	if m.executionDefaults != nil {
-		m.executionDefaults(cfg)
-	}
-}
-
-func (m *TaskManager) consoleLog(level logging.Level, message, id string, fields ...logging.Field) {
-	allFields := append([]logging.Field{logging.F("task_id", id)}, fields...)
-	logging.Log(level, message, allFields...)
-}
-
-func logLevelName(level logging.Level) string {
-	switch level {
-	case logging.LevelDebug:
-		return "DEBUG"
-	case logging.LevelWarn:
-		return "WARN"
-	case logging.LevelError:
-		return "ERROR"
-	default:
-		return "INFO"
-	}
-}
-
 func newTaskID() (string, error) {
 	buf := make([]byte, 8)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
-}
-
-func cloneRuntimeConfig(cfg *models.RuntimeConfig) *models.RuntimeConfig {
-	if cfg == nil {
-		return nil
-	}
-	data, err := models.SerializeRuntimeConfig(cfg)
-	if err != nil {
-		copy := *cfg
-		return &copy
-	}
-	cloned, err := models.DeserializeRuntimeConfig(data)
-	if err != nil {
-		copy := *cfg
-		return &copy
-	}
-	return cloned
-}
-
-func cloneTask(task *TaskRecord) *TaskRecord {
-	if task == nil {
-		return nil
-	}
-	copy := *task
-	copy.Config = cloneRuntimeConfig(task.Config)
-	copy.State = task.State.Snapshot()
-	return &copy
-}
-
-func DefaultTaskManager() (*TaskManager, error) {
-	return DefaultTaskManagerWithStore("data/surveycore.db")
-}
-
-func DefaultTaskManagerWithStore(dbPath string) (*TaskManager, error) {
-	store := NewStore(dbPath)
-	if err := store.Init(); err != nil {
-		return nil, err
-	}
-	manager := NewTaskManager(store, providers.Default())
-	return manager, nil
-}
-
-func DefaultTaskManagerWithStoreAndExecutionDefaults(dbPath string, executionDefaults func(*execution.ExecutionConfig)) (*TaskManager, error) {
-	store := NewStore(dbPath)
-	if err := store.Init(); err != nil {
-		return nil, err
-	}
-	manager := NewTaskManagerWithExecutionDefaults(store, providers.Default(), executionDefaults)
-	return manager, nil
 }

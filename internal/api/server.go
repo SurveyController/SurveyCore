@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,11 @@ type Server struct {
 	manager TaskService
 	version string
 }
+
+const (
+	defaultLogPageSize = 200
+	maxLogPageSize     = 1000
+)
 
 func NewServer(manager TaskService, version string) *Server {
 	return &Server{
@@ -99,12 +105,12 @@ func (s *Server) handleStopTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
-	afterID, err := tasks.ParseLogCursor(r.URL.Query().Get("after"))
+	afterID, err := parseLogCursor(r.URL.Query().Get("after"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_query", "日志查询参数无效", err)
 		return
 	}
-	limit, err := tasks.ParseLogLimit(r.URL.Query().Get("limit"))
+	limit, err := parseLogLimit(r.URL.Query().Get("limit"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_query", "日志查询参数无效", err)
 		return
@@ -189,6 +195,28 @@ func (s *Server) handleDecodeQR(w http.ResponseWriter, r *http.Request) {
 
 func decodeStrictJSON(r *http.Request, dst any) error {
 	return decodeJSON(r, dst, true)
+}
+
+func parseLogCursor(value string) (int64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	cursor, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || cursor < 0 {
+		return 0, errors.New("日志游标必须是非负整数")
+	}
+	return cursor, nil
+}
+
+func parseLogLimit(value string) (int, error) {
+	if value == "" {
+		return defaultLogPageSize, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > maxLogPageSize {
+		return 0, errors.New("日志条数必须是 1 到 1000 之间的整数")
+	}
+	return limit, nil
 }
 
 func decodeJSON(r *http.Request, dst any, strict bool) error {

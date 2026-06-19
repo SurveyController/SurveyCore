@@ -51,11 +51,3 @@ type TaskLogPage struct {
 type taskRuntime struct {
 	cancel context.CancelFunc
 }
-
-type createConfigRequest struct {
-	URL string `json:"url"`
-}
-
-type parseSurveyRequest struct {
-	URL string `json:"url"`
-}

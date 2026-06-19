@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+desktop.ini
 /surveycontroller
 
 # Test binary
@@ -22,7 +23,6 @@ go.work.sum
 .playwright-mcp/
 *.swp
 *.swo
-desktop.ini
 AGENTS.md
 
 # Local database

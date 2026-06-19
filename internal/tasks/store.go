@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -277,26 +276,4 @@ func (s *Store) database() *sql.DB {
 		panic("tasks.Store.Init 必须在读写前调用")
 	}
 	return s.db
-}
-
-func ParseLogCursor(value string) (int64, error) {
-	if value == "" {
-		return 0, nil
-	}
-	cursor, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || cursor < 0 {
-		return 0, errors.New("日志游标必须是非负整数")
-	}
-	return cursor, nil
-}
-
-func ParseLogLimit(value string) (int, error) {
-	if value == "" {
-		return defaultLogPageSize, nil
-	}
-	limit, err := strconv.Atoi(value)
-	if err != nil || limit < 1 || limit > maxLogPageSize {
-		return 0, fmt.Errorf("日志条数必须是 1 到 %d 之间的整数", maxLogPageSize)
-	}
-	return limit, nil
 }
