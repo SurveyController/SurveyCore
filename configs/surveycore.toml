@@ -4,7 +4,7 @@ port = 19178
 
 [storage]
 # 任务和日志数据库路径
-db_path = "data/surveycore.db"
+db_path = "data/surveycore-v1.db"
 
 [ai]
 # 服务端私有 AI 填空配置，不从 HTTP 请求体传入

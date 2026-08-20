@@ -1,32 +1,41 @@
 {
-  "url": "https://www.wjx.cn/vm/xxxxx.aspx",
-  "survey_provider": "wjx",
-  "target": 10,
-  "threads": 3,
-  "submit_interval": [0, 0],
-  "answer_duration": [10, 20],
-  "random_ip_enabled": false,
-  "proxy_source": "default",
-  "custom_proxy_api": "",
-  "proxy_area_code": "",
-  "random_ip_user_id": 0,
-  "random_ip_device_id": "",
-  "ip_extract_endpoint": "",
-  "random_ip_lease_minute": 1,
-  "reliability_mode_enabled": true,
-  "psycho_target_alpha": 0.85,
-  "question_entries": [
-    {
-      "question_type": "single",
-      "probabilities": [0.25, 0.25, 0.25, 0.25],
-      "option_count": 4,
-      "distribution_mode": "random"
-    },
-    {
-      "question_type": "multiple",
-      "probabilities": [0.5, 0.5, 0.3, 0.3],
-      "option_count": 4,
-      "distribution_mode": "custom"
+  "schemaVersion": 2,
+  "survey": {
+    "url": "https://www.wjx.cn/vm/xxxxx.aspx",
+    "provider": "wjx",
+    "title": "",
+    "definition": {
+      "provider": "wjx",
+      "title": "",
+      "questions": []
     }
-  ]
+  },
+  "execution": {
+    "target": 10,
+    "threads": 3,
+    "submitInterval": [0, 0],
+    "answerDuration": [10, 20],
+    "failStop": true,
+    "pauseOnAliyunCaptcha": true
+  },
+  "network": {
+    "randomProxyEnabled": false,
+    "proxySource": "default",
+    "randomUaEnabled": false
+  },
+  "answers": {
+    "rules": [],
+    "dimensions": [],
+    "questions": []
+  },
+  "reverseFill": {
+    "enabled": false,
+    "format": "auto",
+    "startRow": 1,
+    "threads": 1
+  },
+  "psychometrics": {
+    "enabled": true,
+    "targetAlpha": 0.85
+  }
 }

@@ -9,14 +9,13 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/SurveyController/SurveyCore/internal/execution"
 )
 
 const (
 	DefaultPath      = "configs/surveycore.toml"
 	defaultHost      = "127.0.0.1"
 	defaultPort      = 19178
-	defaultDBPath    = "data/surveycore.db"
+	defaultDBPath    = "data/surveycore-v1.db"
 	defaultAIBaseURL = "https://api.deepseek.com/v1"
 	defaultAIModel   = "deepseek-chat"
 )
@@ -99,21 +98,6 @@ func (c Config) Validate() error {
 
 func (c Config) ListenAddr() string {
 	return net.JoinHostPort(defaultHost, strconv.Itoa(c.Server.Port))
-}
-
-func (c Config) ApplyExecutionDefaults(cfg *execution.ExecutionConfig) {
-	if cfg == nil {
-		return
-	}
-	if strings.TrimSpace(cfg.AIBaseURL) == "" {
-		cfg.AIBaseURL = strings.TrimSpace(c.AI.BaseURL)
-	}
-	if strings.TrimSpace(cfg.AIModel) == "" {
-		cfg.AIModel = strings.TrimSpace(c.AI.Model)
-	}
-	if strings.TrimSpace(cfg.AIAPIKey) == "" {
-		cfg.AIAPIKey = strings.TrimSpace(c.AI.APIKey)
-	}
 }
 
 func validatePort(port int) error {

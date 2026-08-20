@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: SurveyCore REST API
+  version: 1.0.0
+  description: Authorized survey parsing and submission service.
+servers:
+  - url: http://127.0.0.1:19178
+paths:
+  /api/v1/health:
+    get:
+      responses:
+        '200': { description: Service is healthy }
+  /api/v1/version:
+    get:
+      responses:
+        '200': { description: Service version }
+  /api/v1/surveys/parse:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/URLRequest' } } } }
+      responses:
+        '200': { description: Parsed survey, content: { application/json: { schema: { $ref: '#/components/schemas/SurveyDefinition' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/v1/configs:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/URLRequest' } } } }
+      responses:
+        '200': { description: Default run configuration, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
+  /api/v1/tasks:
+    get:
+      responses: { '200': { description: Task list } }
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
+      responses:
+        '202': { description: Task accepted, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/tasks/{id}:
+    parameters: [{ $ref: '#/components/parameters/TaskID' }]
+    get: { responses: { '200': { description: Task state }, '404': { $ref: '#/components/responses/NotFound' } } }
+  /api/v1/tasks/{id}/stop:
+    parameters: [{ $ref: '#/components/parameters/TaskID' }]
+    post: { responses: { '200': { description: Current task state }, '404': { $ref: '#/components/responses/NotFound' } } }
+  /api/v1/tasks/{id}/logs:
+    parameters: [{ $ref: '#/components/parameters/TaskID' }]
+    get: { parameters: [{ $ref: '#/components/parameters/After' }, { $ref: '#/components/parameters/Limit' }], responses: { '200': { description: Cursor-paginated logs } } }
+  /api/v1/qrcode/decode:
+    post:
+      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [file], properties: { file: { type: string, format: binary } } } } } }
+      responses: { '200': { description: Survey URL }, '422': { $ref: '#/components/responses/ValidationError' } }
+  /api/v1/proxy/session:
+    post: { responses: { '200': { description: Official proxy session } } }
+  /api/v1/proxy/usage:
+    get: { responses: { '200': { description: Official proxy usage } } }
+  /api/v1/proxy/extract:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProxyExtractRequest' } } } }
+      responses: { '200': { description: Proxy leases } }
+  /api/v1/proxy/bonus:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CodeRequest' } } } }
+      responses: { '200': { description: Bonus result } }
+  /api/v1/proxy/redeem:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CodeRequest' } } } }
+      responses: { '200': { description: Redeem result } }
+components:
+  parameters:
+    TaskID: { name: id, in: path, required: true, schema: { type: string } }
+    After: { name: after, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+    Limit: { name: limit, in: query, description: Zero uses the default; values above 1000 are capped, schema: { type: integer, minimum: 0, default: 200 } }
+  responses:
+    InvalidJSON: { description: Invalid JSON, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    ValidationError: { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    UpstreamError: { description: Upstream error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  schemas:
+    URLRequest: { type: object, required: [url], properties: { url: { type: string, format: uri } } }
+    RunRequest:
+      type: object
+      required: [source, definition, execution, answers, reverseFill, psychometrics]
+      properties:
+        source:
+          type: object
+          required: [url]
+          properties:
+            url: { type: string, format: uri }
+            provider: { type: string, enum: [wjx, qq, credamo] }
+        definition: { $ref: '#/components/schemas/SurveyDefinition' }
+        execution:
+          type: object
+          properties:
+            target: { type: integer, minimum: 1 }
+            threads: { type: integer, minimum: 1 }
+            submitInterval: { $ref: '#/components/schemas/IntegerPair' }
+            answerDuration: { $ref: '#/components/schemas/IntegerPair' }
+            answerDatetimeWindow: { type: array, minItems: 2, maxItems: 2, items: { type: string } }
+            failStop: { type: boolean }
+            pauseOnAliyunCaptcha: { type: boolean }
+        answers: { type: object }
+        reverseFill: { type: object }
+        psychometrics: { type: object }
+    IntegerPair: { type: array, minItems: 2, maxItems: 2, items: { type: integer } }
+    SurveyDefinition: { type: object, required: [provider, title, questions], properties: { provider: { type: string }, title: { type: string }, questions: { type: array, items: { type: object } } } }
+    Task: { type: object, required: [id, status, config, created_at], properties: { id: { type: string }, status: { type: string, enum: [pending, running, succeeded, failed, stopped, interrupted] }, config: { $ref: '#/components/schemas/RunRequest' }, created_at: { type: string, format: date-time }, started_at: { type: string, format: date-time }, finished_at: { type: string, format: date-time }, result: { type: object }, error: { type: string }, stop_message: { type: string } } }
+    ProxyExtractRequest: { type: object, properties: { minute: { type: integer }, pool: { type: string }, area: { type: string }, num: { type: integer }, upstream: { type: string } } }
+    CodeRequest: { type: object, required: [code], properties: { code: { type: string } } }
+    Error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string }, detail: { type: string } } }

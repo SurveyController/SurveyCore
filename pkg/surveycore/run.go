@@ -6,138 +6,167 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SurveyController/SurveyCore/internal/engine"
-	"github.com/SurveyController/SurveyCore/internal/models"
-	runstate "github.com/SurveyController/SurveyCore/internal/runtime"
-	"github.com/SurveyController/SurveyCore/internal/surveyrun"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/credamo"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/tencent"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/wjx"
 )
 
-func (c *Client) Run(ctx context.Context, cfg *RuntimeConfig) (*RunResult, error) {
+type EventHandler func(Event)
+
+func (c *Client) Run(ctx context.Context, cfg *RunRequest) (*RunResult, error) {
 	return c.RunWithEvents(ctx, cfg, nil)
 }
 
-func (c *Client) RunWithEvents(ctx context.Context, cfg *RuntimeConfig, handler EventHandler) (*RunResult, error) {
+func (c *Client) RunWithEvents(ctx context.Context, cfg *RunRequest, handler EventHandler) (*RunResult, error) {
+	return c.RunWithExecutionOptions(ctx, cfg, handler, ExecutionOptionsFromConfig(cfg))
+}
+
+func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, handler EventHandler, options ExecutionOptions) (*RunResult, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("%w: 配置为空", ErrInvalidConfig)
 	}
-	runtimeCfg := cloneRuntimeConfig(cfg)
-	statusHandler := func(event engine.StatusEvent) {
-		if handler != nil {
-			handler(mapEvent(event))
+	if strings.TrimSpace(cfg.SurveySource.URL) == "" {
+		return nil, fmt.Errorf("%w: 必须提供问卷链接", ErrInvalidConfig)
+	}
+	provider := detectProvider(cfg.SurveySource.URL)
+	if cfg.SurveySource.Provider != "" {
+		provider = cfg.SurveySource.Provider
+	}
+	runCfg, runOptions, err := c.prepareReverseFillExecution(ctx, cfg, provider, options)
+	if err != nil {
+		return nil, err
+	}
+	if err := prepareAnswerDatetimeWindowExecution(runCfg, provider); err != nil {
+		return nil, err
+	}
+	runCfg, runOptions = c.prepareAnswerRuntimeExecution(runCfg, runOptions)
+	runCfg, runOptions, err = c.prepareAIExecution(ctx, runCfg, runOptions)
+	if err != nil {
+		return nil, err
+	}
+	runCfg, runOptions, err = c.preparePsychometricExecution(ctx, runCfg, runOptions)
+	if err != nil {
+		return nil, err
+	}
+	baseRequest := model.SubmissionRequest{
+		Source:               runCfg.SurveySource,
+		Definition:           cloneSurveyDefinition(runCfg.SurveyDefinition),
+		AnswerDuration:       runCfg.AnswerDuration,
+		AnswerDatetimeWindow: runCfg.AnswerDatetimeWindow,
+		Context: model.SubmissionContext{
+			AIProfile: runOptions.AIProfile,
+			Runtime:   runOptions.AnswerRuntime,
+		},
+	}
+	userAgent := model.RuntimeUserAgent(runOptions.UserAgent)
+	if provider == model.ProviderQQ {
+		runner := tencent.Runner{HTTP: httpClientOrDefault(c.httpClient), UserAgent: userAgent}
+		prepared, prepareErr := runner.Prepare(ctx, &baseRequest)
+		if prepareErr != nil {
+			return nil, wrapRunError(prepareErr)
 		}
+		if len(runCfg.SurveyDefinition.Questions) == 0 {
+			runCfg.SurveyDefinition = prepared.Definition
+		}
+		emitPrepared(handler)
+		result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
+			localRunner := runner
+			localRunner.UserAgent = local.Context.UserAgent
+			runResult, runErr := localRunner.RunPrepared(runCtx, local, prepared, func(event tencent.Event) {
+				if localHandler == nil {
+					return
+				}
+				localHandler(Event{
+					Worker:  event.Worker,
+					Message: event.Message,
+					Success: event.Success,
+					Fail:    event.Fail,
+					Current: event.Current,
+					Total:   event.Total,
+					Time:    event.Time,
+				})
+			})
+			return resultFromTencent(runResult), runErr
+		}, handler, runOptions)
+		if err != nil {
+			return result, wrapRunError(err)
+		}
+		return result, nil
 	}
-	state, err := surveyrun.New(c.registry, c.applyExecutionDefaults).Run(ctx, runtimeCfg, statusHandler)
-	if err != nil {
-		return resultFromState(state), wrapRunError(err)
+	if provider == model.ProviderWJX {
+		runner := wjx.Runner{Client: c.httpClient.Client, UserAgent: userAgent}
+		prepared, prepareErr := runner.Prepare(ctx, &baseRequest)
+		if prepareErr != nil {
+			return nil, wrapRunError(prepareErr)
+		}
+		if len(runCfg.SurveyDefinition.Questions) == 0 {
+			runCfg.SurveyDefinition = prepared.Definition
+		}
+		emitPrepared(handler)
+		result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
+			localRunner := runner
+			localRunner.UserAgent = local.Context.UserAgent
+			runResult, runErr := localRunner.RunPrepared(runCtx, local, prepared, func(event wjx.Event) {
+				if localHandler == nil {
+					return
+				}
+				localHandler(Event{
+					Worker:  event.Worker,
+					Message: event.Message,
+					Success: event.Success,
+					Fail:    event.Fail,
+					Current: event.Current,
+					Total:   event.Total,
+					Time:    event.Time,
+				})
+			})
+			return resultFromWJX(runResult), runErr
+		}, handler, runOptions)
+		if err != nil {
+			return result, wrapRunError(err)
+		}
+		return result, nil
 	}
-	return resultFromState(state), nil
-}
-
-func wrapRunError(err error) error {
-	if err == nil {
-		return nil
+	if provider != model.ProviderCredamo {
+		return nil, fmt.Errorf("%w: unsupported provider %q", ErrUnsupportedOperation, provider)
 	}
-	message := err.Error()
-	switch {
-	case message == "配置为空", message == "必须提供问卷链接":
-		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
-	case strings.HasPrefix(message, "解析问卷失败"):
-		return fmt.Errorf("%w: %v", ErrParseFailed, err)
-	case strings.HasPrefix(message, "准备执行配置失败"):
-		return fmt.Errorf("%w: %v", ErrPrepareConfigFailed, err)
-	default:
-		return fmt.Errorf("%w: %v", ErrRunFailed, err)
+	runner := credamo.Runner{HTTP: httpClientOrDefault(c.httpClient), UserAgent: userAgent}
+	prepared, prepareErr := runner.Prepare(ctx, &baseRequest)
+	if prepareErr != nil {
+		return nil, wrapRunError(prepareErr)
 	}
-}
-
-func resultFromState(state *runstate.ExecutionState) *RunResult {
-	if state == nil {
-		return &RunResult{}
+	if len(runCfg.SurveyDefinition.Questions) == 0 {
+		runCfg.SurveyDefinition = prepared.Definition
 	}
-	stopped := state.IsStopped()
-	snapshot := state.Snapshot()
-	category, reason, message := snapshot.GetTerminalStopSnapshot()
-	return &RunResult{
-		Success:               snapshot.GetCurNum(),
-		Fail:                  snapshot.GetCurFail(),
-		Stopped:               stopped || category != "",
-		TerminalStopCategory:  category,
-		TerminalFailureReason: reason,
-		TerminalStopMessage:   message,
-		ThreadProgress:        mapThreadProgress(snapshot),
-	}
-}
-
-func mapThreadProgress(state *runstate.ExecutionState) []ThreadProgress {
-	if state == nil {
-		return nil
-	}
-	raw := state.SnapshotThreadProgress()
-	progress := make([]ThreadProgress, 0, len(raw))
-	for _, item := range raw {
-		progress = append(progress, ThreadProgress{
-			ThreadName:   stringValue(item["thread_name"]),
-			ThreadIndex:  intValue(item["thread_index"]),
-			SuccessCount: intValue(item["success_count"]),
-			FailCount:    intValue(item["fail_count"]),
-			StepCurrent:  intValue(item["step_current"]),
-			StepTotal:    intValue(item["step_total"]),
-			StatusText:   stringValue(item["status_text"]),
-			Running:      boolValue(item["running"]),
-			LastUpdate:   unixTime(floatValue(item["last_update"])),
+	emitPrepared(handler)
+	result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
+		localRunner := runner
+		localRunner.UserAgent = local.Context.UserAgent
+		runResult, runErr := localRunner.RunPrepared(runCtx, local, prepared, func(event credamo.Event) {
+			if localHandler == nil {
+				return
+			}
+			localHandler(Event{
+				Worker:  event.Worker,
+				Message: event.Message,
+				Success: event.Success,
+				Fail:    event.Fail,
+				Current: event.Current,
+				Total:   event.Total,
+				Time:    event.Time,
+			})
 		})
-	}
-	return progress
-}
-
-func cloneRuntimeConfig(cfg *models.RuntimeConfig) *models.RuntimeConfig {
-	if cfg == nil {
-		return nil
-	}
-	data, err := models.SerializeRuntimeConfig(cfg)
+		return resultFromCredamo(runResult), runErr
+	}, handler, runOptions)
 	if err != nil {
-		copy := *cfg
-		return &copy
+		return result, wrapRunError(err)
 	}
-	cloned, err := models.DeserializeRuntimeConfig(data)
-	if err != nil {
-		copy := *cfg
-		return &copy
-	}
-	return cloned
+	return result, nil
 }
 
-func stringValue(value any) string {
-	if typed, ok := value.(string); ok {
-		return typed
+func emitPrepared(handler EventHandler) {
+	if handler != nil {
+		handler(Event{Message: "解析成功", Time: time.Now()})
 	}
-	return ""
-}
-
-func intValue(value any) int {
-	if typed, ok := value.(int); ok {
-		return typed
-	}
-	return 0
-}
-
-func boolValue(value any) bool {
-	if typed, ok := value.(bool); ok {
-		return typed
-	}
-	return false
-}
-
-func floatValue(value any) float64 {
-	if typed, ok := value.(float64); ok {
-		return typed
-	}
-	return 0
-}
-
-func unixTime(value float64) time.Time {
-	if value <= 0 {
-		return time.Time{}
-	}
-	return time.Unix(int64(value), 0)
 }

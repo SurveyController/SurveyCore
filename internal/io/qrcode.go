@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/SurveyController/SurveyCore/internal/providers"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore"
 	"github.com/makiuchi-d/gozxing"
 	"github.com/makiuchi-d/gozxing/qrcode"
 )
@@ -54,7 +54,7 @@ func decodeQRFromImage(img image.Image) (string, error) {
 
 // IsSurveyURL checks if a decoded QR text looks like a survey URL.
 func IsSurveyURL(text string) bool {
-	return providers.IsSupportedSurveyURL(text)
+	return surveycore.IsSupportedURL(text)
 }
 
 // DecodeSurveyURLFromFile reads a QR code image and extracts a survey URL.

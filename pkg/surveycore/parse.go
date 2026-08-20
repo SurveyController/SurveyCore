@@ -3,14 +3,21 @@ package surveycore
 import (
 	"context"
 	"fmt"
-
-	"github.com/SurveyController/SurveyCore/internal/surveyparse"
+	"strings"
 )
 
 func (c *Client) Parse(ctx context.Context, surveyURL string) (*SurveyDefinition, error) {
-	def, err := surveyparse.New(c.registry).Parse(ctx, surveyURL)
+	surveyURL = strings.TrimSpace(surveyURL)
+	if surveyURL == "" {
+		return nil, fmt.Errorf("%w: url 不能为空", ErrInvalidConfig)
+	}
+	parser, err := c.parserFor(surveyURL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", err, detectProvider(surveyURL))
+	}
+	definition, err := parser.Parse(ctx, surveyURL)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrParseFailed, err)
 	}
-	return def, nil
+	return &definition, nil
 }

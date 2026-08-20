@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/SurveyController/SurveyCore/internal/execution"
 )
 
 func TestLoadUsesDefaultsWhenFileMissing(t *testing.T) {
@@ -16,8 +14,8 @@ func TestLoadUsesDefaultsWhenFileMissing(t *testing.T) {
 	if cfg.Server.Port != defaultPort {
 		t.Fatalf("port = %d, want %d", cfg.Server.Port, defaultPort)
 	}
-	if cfg.Storage.DBPath != defaultDBPath {
-		t.Fatalf("db_path = %q, want %q", cfg.Storage.DBPath, defaultDBPath)
+	if cfg.Storage.DBPath != "data/surveycore-v1.db" {
+		t.Fatalf("db_path = %q, want V1 database path", cfg.Storage.DBPath)
 	}
 	if cfg.AI.BaseURL != defaultAIBaseURL || cfg.AI.Model != defaultAIModel {
 		t.Fatalf("ai defaults = %q/%q, want defaults", cfg.AI.BaseURL, cfg.AI.Model)
@@ -84,25 +82,6 @@ port = 70000
 
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want invalid port error")
-	}
-}
-
-func TestApplyExecutionDefaultsFillsOnlyEmptyAIValues(t *testing.T) {
-	cfg := Config{
-		AI: AIConfig{BaseURL: "https://ai.example.test/v1", Model: "test-model", APIKey: "test-key"},
-	}
-	execCfg := &execution.ExecutionConfig{AIModel: "custom-model"}
-
-	cfg.ApplyExecutionDefaults(execCfg)
-
-	if execCfg.AIBaseURL != "https://ai.example.test/v1" {
-		t.Fatalf("ai base url = %q, want config default", execCfg.AIBaseURL)
-	}
-	if execCfg.AIModel != "custom-model" {
-		t.Fatalf("ai model = %q, want request value preserved", execCfg.AIModel)
-	}
-	if execCfg.AIAPIKey != "test-key" {
-		t.Fatalf("ai key = %q, want config default", execCfg.AIAPIKey)
 	}
 }
 
