@@ -2,7 +2,7 @@
 
 SurveyCore 是 SurveyController 使用的问卷解析、配置、提交、代理和任务 REST 核心。
 
-![Go](https://img.shields.io/badge/Go-1.26.4-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.26.7-00ADD8?logo=go&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-3.43.1-003B57?logo=sqlite&logoColor=white)
 
 [SurveyController](https://github.com/SurveyController/SurveyController) 的核心 HTTP 提交 API 服务。
@@ -24,7 +24,7 @@ SurveyCore 是 SurveyController 使用的问卷解析、配置、提交、代理
 
 ### 环境要求
 
-- Go 1.26.4
+- Go 1.26.7（最低支持 Go 1.26.5）
 
 如果还没有安装 Go，可以从 [Go 官方网站](https://go.dev/dl/) 下载并安装适合您操作系统的版本。
 

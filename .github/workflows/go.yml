@@ -10,44 +10,95 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GO_VERSION: "1.26.7"
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-
+  verify-windows-amd64:
+    name: Verify Windows amd64
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
-
-      - name: Download modules
-        run: go mod download
-
+      - name: Verify toolchain and architecture
+        shell: pwsh
+        run: |
+          if ((go version) -notmatch 'go1\.26\.7') { throw "Go 1.26.7 is required." }
+          if ((go env GOOS) -ne 'windows' -or (go env GOARCH) -ne 'amd64') { throw "Expected windows/amd64." }
       - name: Test
         run: go test ./...
-
-      - name: Vet
-        run: go vet ./...
-
       - name: Build
         run: go build ./...
 
-      - name: Race test
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: go test -race ./...
+  verify-windows-arm64:
+    name: Verify Windows arm64
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Verify toolchain and architecture
+        shell: pwsh
+        run: |
+          if ((go version) -notmatch 'go1\.26\.7') { throw "Go 1.26.7 is required." }
+          if ((go env GOOS) -ne 'windows' -or (go env GOARCH) -ne 'arm64') { throw "Expected windows/arm64." }
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
 
+  verify-linux-amd64:
+    name: Verify Linux amd64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Verify toolchain and architecture
+        run: |
+          case "$(go version)" in *"go1.26.7"*) ;; *) exit 1 ;; esac
+          test "$(go env GOOS)/$(go env GOARCH)" = "linux/amd64"
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Race test
+        run: go test -race ./...
+      - name: Build
+        run: go build ./...
+
+  verify-linux-arm64:
+    name: Verify Linux arm64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Verify toolchain and architecture
+        run: |
+          case "$(go version)" in *"go1.26.7"*) ;; *) exit 1 ;; esac
+          test "$(go env GOOS)/$(go env GOARCH)" = "linux/arm64"
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
       - name: Check module tidiness
         run: go mod tidy -diff
-
       - name: Check whitespace
         run: git diff --check
