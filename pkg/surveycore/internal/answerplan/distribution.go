@@ -25,7 +25,7 @@ func selectionEntry(question model.QuestionMeta, entry model.QuestionStrategy, r
 	trackDistribution := false
 	if options.Runtime != nil && (strictRatio || hasDimension) {
 		reference := append([]float64(nil), values...)
-		values = resolveDistributionProbabilities(values, count, options.Runtime, question.Num, rowIndex)
+		values = resolveDistributionProbabilitiesWithPriority(values, count, options.Runtime, question.Num, rowIndex, hasDimension)
 		if strictRatio {
 			values = enforceReferenceRankOrder(values, reference)
 		}
@@ -42,7 +42,7 @@ func multipleSelectionEntry(question model.QuestionMeta, entry model.QuestionStr
 	if isStrictRatioEntry(entry) {
 		return entry
 	}
-	values := fitProbabilityCount(ProbabilityValues(entry.Probabilities), maxInt(1, question.Options))
+	values := fitProbabilityCount(effectiveSelectionValues(entry), maxInt(1, question.Options))
 	values = applyPersonaBoost(question.OptionTexts, values, options.Persona)
 	cloned := entry
 	cloned.Probabilities = model.OptionWeights(values...)
@@ -50,18 +50,31 @@ func multipleSelectionEntry(question model.QuestionMeta, entry model.QuestionStr
 }
 
 func effectiveProbabilityValues(entry model.QuestionStrategy, rowIndex *int, count int) []float64 {
+	preferCustom := strings.EqualFold(strings.TrimSpace(entry.DistributionMode), "custom")
 	var values []float64
 	if rowIndex != nil {
-		values = ProbabilityRowValues(entry.Probabilities, *rowIndex)
-		if positiveTotal(values) <= 0 {
+		if preferCustom {
 			values = ProbabilityRowValues(entry.CustomWeights, *rowIndex)
+			if positiveTotal(values) <= 0 {
+				values = ProbabilityRowValues(entry.Probabilities, *rowIndex)
+			}
+		} else {
+			values = ProbabilityRowValues(entry.Probabilities, *rowIndex)
+			if positiveTotal(values) <= 0 {
+				values = ProbabilityRowValues(entry.CustomWeights, *rowIndex)
+			}
 		}
 	}
-	if positiveTotal(values) <= 0 {
-		values = ProbabilityValues(entry.Probabilities)
-	}
-	if positiveTotal(values) <= 0 {
+	if positiveTotal(values) <= 0 && preferCustom {
 		values = ProbabilityValues(entry.CustomWeights)
+		if positiveTotal(values) <= 0 {
+			values = ProbabilityValues(entry.Probabilities)
+		}
+	} else if positiveTotal(values) <= 0 {
+		values = ProbabilityValues(entry.Probabilities)
+		if positiveTotal(values) <= 0 {
+			values = ProbabilityValues(entry.CustomWeights)
+		}
 	}
 	return fitProbabilityCount(values, count)
 }

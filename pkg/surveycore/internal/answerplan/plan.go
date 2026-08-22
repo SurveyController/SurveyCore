@@ -60,7 +60,7 @@ func BuildActionWithOptions(question model.QuestionMeta, entry model.QuestionStr
 	}
 	kind := normalizeKind(question, entry)
 	switch kind {
-	case "single", "dropdown", "scale":
+	case "single", "dropdown", "scale", "score":
 		count := maxInt(1, question.Options)
 		selectionEntry, trackDistribution := selectionEntry(question, entry, nil, count, options)
 		index := SelectedIndex(selectionEntry, count)
@@ -138,7 +138,7 @@ func normalizeKind(question model.QuestionMeta, entry model.QuestionStrategy) st
 		kind = strings.TrimSpace(question.ProviderType)
 	}
 	switch kind {
-	case "single", "multiple", "dropdown", "scale", "matrix", "order", "slider", "text", "multi_text":
+	case "single", "multiple", "dropdown", "scale", "score", "matrix", "order", "slider", "text", "multi_text":
 		if kind == "multi_text" {
 			return "text"
 		}
@@ -163,6 +163,9 @@ func normalizeKind(question model.QuestionMeta, entry model.QuestionStrategy) st
 	case "4":
 		return "multiple"
 	case "5":
+		if question.IsRating {
+			return "score"
+		}
 		return "scale"
 	case "6":
 		return "matrix"

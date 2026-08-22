@@ -24,6 +24,22 @@ func TestDefaultQuestionEntriesAlignParserTypes(t *testing.T) {
 	}
 }
 
+func TestDefaultScoreStrategyUsesCustomMiddleWeights(t *testing.T) {
+	entries := buildDefaultQuestionStrategies([]QuestionMeta{{
+		Num: 1, Title: "评分", Provider: ProviderWJX, ProviderType: "score", TypeCode: "5", IsRating: true, Options: 5,
+	}})
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	entry := entries[0]
+	if entry.QuestionType != "score" || entry.DistributionMode != "custom" {
+		t.Fatalf("entry = %#v", entry)
+	}
+	if len(entry.CustomWeights.Options) != 5 || entry.CustomWeights.Options[2] <= entry.CustomWeights.Options[0] {
+		t.Fatalf("score weights = %#v", entry.CustomWeights.Options)
+	}
+}
+
 func assertEntry(t *testing.T, entry QuestionStrategy, questionType string, probabilities int, providerID string) {
 	t.Helper()
 	if string(entry.QuestionType) != questionType {

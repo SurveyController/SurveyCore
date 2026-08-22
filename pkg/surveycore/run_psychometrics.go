@@ -22,7 +22,6 @@ func (c *Client) preparePsychometricExecution(ctx context.Context, cfg *RunReque
 		}
 		populateConfigSurveyDefinition(&runCfg, definition)
 	}
-	ensureQuestionStrategies(&runCfg)
 	target := options.Target
 	if target <= 0 {
 		target = runCfg.Target

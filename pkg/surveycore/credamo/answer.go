@@ -23,6 +23,10 @@ func buildAnswerItems(rawQuestions []map[string]any, request *model.SubmissionRe
 	items := make([]map[string]any, 0, len(rawQuestions))
 	for index, rawQuestion := range rawQuestions {
 		questionNum := rawQuestionNum(rawQuestion, index+1)
+		normalized := normalizeQuestion(rawToNormalizedInput(rawQuestion, questionNum), questionNum)
+		if !isAnswerableQuestion(normalized) {
+			continue
+		}
 		action, ok := findActionForRawQuestion(actionsByNum, actionsByID, rawQuestion, questionNum)
 		if !ok {
 			return nil, fmt.Errorf("见数第%d题没有生成可提交答案", questionNum)
@@ -47,7 +51,10 @@ func normalizeSubmitQuestions(rawQuestions []map[string]any) []model.QuestionMet
 	questions := make([]model.QuestionMeta, 0, len(rawQuestions))
 	for index, raw := range rawQuestions {
 		questionNum := rawQuestionNum(raw, index+1)
-		questions = append(questions, normalizeQuestion(rawToNormalizedInput(raw, questionNum), questionNum))
+		question := normalizeQuestion(rawToNormalizedInput(raw, questionNum), questionNum)
+		if isAnswerableQuestion(question) {
+			questions = append(questions, question)
+		}
 	}
 	return questions
 }
@@ -172,12 +179,18 @@ func choiceAnswer(raw map[string]any, action model.AnswerAction, questionNum int
 		selected := action.SelectedIndices
 		values := make([]map[string]any, 0, len(selected))
 		for _, index := range selected {
+			if index < 0 || index >= len(choices) {
+				return nil, fmt.Errorf("见数第%d题选项索引越界：%d（选项数%d）", questionNum, index, len(choices))
+			}
 			values = append(values, choicePayload(choices[index], ""))
 		}
 		item["answerQstChoiceList"] = values
 		return item, nil
 	}
 	index := firstSelectedIndex(action.SelectedIndices)
+	if index < 0 || index >= len(choices) {
+		return nil, fmt.Errorf("见数第%d题选项索引越界：%d（选项数%d）", questionNum, index, len(choices))
+	}
 	item["answerQstChoice"] = choicePayload(choices[index], action.OptionFillTexts[index])
 	return item, nil
 }
@@ -201,7 +214,13 @@ func matrixAnswer(raw map[string]any, action model.AnswerAction, questionNum int
 	item := baseAnswer(raw)
 	answerRows := make([]map[string]any, 0, len(rows))
 	for rowIndex, row := range rows {
-		colIndex := firstMatrixIndex(action.MatrixIndices, rowIndex)
+		if rowIndex >= len(action.MatrixIndices) {
+			return nil, fmt.Errorf("见数第%d题第%d行缺少矩阵列索引", questionNum, rowIndex+1)
+		}
+		colIndex := action.MatrixIndices[rowIndex]
+		if colIndex < 0 || colIndex >= len(columns) {
+			return nil, fmt.Errorf("见数第%d题第%d行矩阵列索引越界：%d（列数%d）", questionNum, rowIndex+1, colIndex, len(columns))
+		}
 		answerRows = append(answerRows, map[string]any{
 			"choiceId": idFromMapping(row, "choiceId", "id"),
 			"choiceAnswerList": []map[string]any{
@@ -227,6 +246,9 @@ func orderAnswer(raw map[string]any, action model.AnswerAction, questionNum int)
 	}
 	ranked := make([]map[string]any, 0, len(indices))
 	for rank, index := range indices {
+		if index < 0 || index >= len(choices) {
+			return nil, fmt.Errorf("见数第%d题排序选项索引越界：%d（选项数%d）", questionNum, index, len(choices))
+		}
 		ranked = append(ranked, map[string]any{
 			"choiceId":      idFromMapping(choices[index], "choiceId", "id"),
 			"choiceContent": rank + 1,
@@ -237,15 +259,8 @@ func orderAnswer(raw map[string]any, action model.AnswerAction, questionNum int)
 }
 
 func firstSelectedIndex(indices []int) int {
-	if len(indices) == 0 || indices[0] < 0 {
+	if len(indices) == 0 {
 		return 0
 	}
 	return indices[0]
-}
-
-func firstMatrixIndex(indices []int, row int) int {
-	if row >= 0 && row < len(indices) && indices[row] >= 0 {
-		return indices[row]
-	}
-	return 0
 }

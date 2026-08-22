@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
 )
 
 func TestRunWJXPreparesSurveyOnce(t *testing.T) {
@@ -25,7 +27,7 @@ func TestRunWJXPreparesSurveyOnce(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := &RunRequest{SurveySource: SurveySource{URL: "https://www.wjx.cn/vm/demo.aspx", Provider: ProviderWJX}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}}
+	cfg := &RunRequest{SurveySource: SurveySource{URL: "https://www.wjx.cn/vm/demo.aspx", Provider: ProviderWJX}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}, AnswerPlan: AnswerPlan{Strategies: []QuestionStrategy{{QuestionNum: intPtr(1), QuestionType: model.QuestionKindSingle, Probabilities: model.OptionWeights(1, 1), OptionCount: 2}}}}
 	result, err := New(WithHTTPClient(rewriteWJXHTTPClient(server.URL))).Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +61,7 @@ func TestRunCredamoPreparesSurveyOnce(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := &RunRequest{SurveySource: SurveySource{URL: server.URL + "/s/demo_", Provider: ProviderCredamo}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}}
+	cfg := &RunRequest{SurveySource: SurveySource{URL: server.URL + "/s/demo_", Provider: ProviderCredamo}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}, AnswerPlan: AnswerPlan{Strategies: []QuestionStrategy{{QuestionNum: intPtr(1), QuestionType: model.QuestionKindSingle, Probabilities: model.OptionWeights(1, 1), OptionCount: 2}}}}
 	result, err := New().Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +94,7 @@ func TestRunTencentPreparesQuestionsOnceAndKeepsSessionPerSubmission(t *testing.
 	}))
 	defer server.Close()
 
-	cfg := &RunRequest{SurveySource: SurveySource{URL: "https://wj.qq.com/s2/123/hashvalue/", Provider: ProviderQQ}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}}
+	cfg := &RunRequest{SurveySource: SurveySource{URL: "https://wj.qq.com/s2/123/hashvalue/", Provider: ProviderQQ}, ExecutionPlan: ExecutionPlan{Target: 3, Threads: 3}, AnswerPlan: AnswerPlan{Strategies: []QuestionStrategy{{QuestionNum: intPtr(1), QuestionType: model.QuestionKindSingle, Probabilities: model.OptionWeights(1, 1), OptionCount: 2}}}}
 	result, err := New(WithHTTPClient(rewriteTencentHTTPClient(server.URL))).Run(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

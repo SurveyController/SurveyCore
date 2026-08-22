@@ -74,35 +74,61 @@ func Run(ctx context.Context, cfg *RunRequest) (*RunResult, error) {
 }
 
 func IsSupportedURL(rawURL string) bool {
-	host, path := surveyHostPath(rawURL)
-	if host == "" {
+	parsed, ok := parseSurveyURL(rawURL)
+	if !ok {
 		return false
 	}
+	host := strings.ToLower(parsed.Hostname())
+	path := parsed.Path
 	if isHost(host, "wjx.cn", "wjx.com", "wjx.top") {
-		return true
+		return wjxSurveyPathRE.MatchString(path)
 	}
 	if host == "wj.qq.com" {
 		return regexp.MustCompile(`(?i)^/s\d+/\d+/[A-Za-z0-9_-]+/?$`).MatchString(path)
 	}
 	if isHost(host, "credamo.com", "credamo.cn") {
-		return strings.HasPrefix(strings.ToLower(path), "/answer.html") || regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`).MatchString(path)
+		if regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`).MatchString(path) {
+			return true
+		}
+		if !strings.EqualFold(strings.TrimRight(path, "/"), "/answer.html") {
+			return false
+		}
+		fragment := strings.Trim(strings.SplitN(strings.TrimSpace(parsed.Fragment), "?", 2)[0], "/")
+		parts := strings.Split(fragment, "/")
+		return len(parts) == 2 && strings.EqualFold(parts[0], "s") && regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(parts[1])
 	}
 	return false
 }
 
 func surveyHostPath(raw string) (string, string) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	parsed, ok := parseSurveyURL(raw)
+	if !ok {
 		return "", ""
 	}
-	if !strings.Contains(raw, "://") {
-		raw = "https://" + raw
+	return strings.ToLower(parsed.Hostname()), parsed.Path
+}
+
+var wjxSurveyPathRE = regexp.MustCompile(`(?i)^/(?:vm|m|vj|v|s)/[A-Za-z0-9_-]+(?:\.aspx)?/?$`)
+
+func parseSurveyURL(raw string) (*url.URL, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil, false
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", ""
+	// Keep accepting the historical scheme-less QR form, but validate every
+	// explicit scheme instead of dispatching from arbitrary string fragments.
+	if !strings.Contains(text, "://") {
+		text = "https://" + text
 	}
-	return strings.ToLower(u.Hostname()), u.Path
+	parsed, err := url.Parse(text)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+		return nil, false
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return nil, false
+	}
+	return parsed, true
 }
 func isHost(host string, domains ...string) bool {
 	for _, d := range domains {
@@ -131,20 +157,38 @@ func httpClientOrDefault(client HTTPClient) httpjson.Client {
 }
 
 func detectProvider(rawURL string) string {
-	lowered := strings.ToLower(strings.TrimSpace(rawURL))
-	switch {
-	case strings.Contains(lowered, "credamo.com") || strings.Contains(lowered, "credamo.cn"):
-		return model.ProviderCredamo
-	case strings.Contains(lowered, "127.0.0.1") || strings.Contains(lowered, "localhost"):
-		if strings.Contains(lowered, "/s/") || strings.Contains(lowered, "#/s/") {
-			return model.ProviderCredamo
-		}
+	parsed, ok := parseSurveyURL(rawURL)
+	if !ok {
 		return ""
-	case strings.Contains(lowered, "wj.qq.com"):
+	}
+	host := strings.ToLower(parsed.Hostname())
+	path := parsed.Path
+	switch {
+	case isHost(host, "credamo.com", "credamo.cn") && credamoSurveyPath(parsed):
+		return model.ProviderCredamo
+	case (host == "127.0.0.1" || host == "localhost") && credamoSurveyPath(parsed):
+		return model.ProviderCredamo
+	case host == "wj.qq.com" && regexp.MustCompile(`(?i)^/s\d+/\d+/[A-Za-z0-9_-]+/?$`).MatchString(path):
 		return model.ProviderQQ
-	case strings.Contains(lowered, "wjx.cn") || strings.Contains(lowered, "wjx.com") || strings.Contains(lowered, "wjx.top"):
+	case isHost(host, "wjx.cn", "wjx.com", "wjx.top") && wjxSurveyPathRE.MatchString(path):
 		return model.ProviderWJX
 	default:
 		return ""
 	}
+}
+
+func credamoSurveyPath(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+	path := parsed.Path
+	if regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`).MatchString(path) {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimRight(path, "/"), "/answer.html") {
+		return false
+	}
+	fragment := strings.Trim(strings.SplitN(strings.TrimSpace(parsed.Fragment), "?", 2)[0], "/")
+	parts := strings.Split(fragment, "/")
+	return len(parts) == 2 && strings.EqualFold(parts[0], "s") && regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(parts[1])
 }

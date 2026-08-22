@@ -2,6 +2,7 @@ package answerplan
 
 import (
 	"math/rand"
+	"strings"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
 )
@@ -10,7 +11,7 @@ func SelectedIndex(entry model.QuestionStrategy, count int) int {
 	if count <= 0 {
 		return 0
 	}
-	values := ProbabilityValues(entry.Probabilities)
+	values := effectiveSelectionValues(entry)
 	total := 0.0
 	for index, value := range values {
 		if index < count && value > 0 {
@@ -39,7 +40,7 @@ func SelectedIndex(entry model.QuestionStrategy, count int) int {
 }
 
 func SelectedMatrixIndex(entry model.QuestionStrategy, row int, count int) int {
-	rowValues := ProbabilityRowValues(entry.Probabilities, row)
+	rowValues := effectiveRowValues(entry, row)
 	if len(rowValues) == 0 {
 		return SelectedIndex(entry, count)
 	}
@@ -61,7 +62,8 @@ func SelectedIndices(entry model.QuestionStrategy, count int, minRequired int, m
 	if minRequired > maxAllowed {
 		minRequired = maxAllowed
 	}
-	values := fitProbabilityCount(ProbabilityValues(entry.Probabilities), count)
+	values := effectiveSelectionValues(entry)
+	values = fitProbabilityCount(values, count)
 	if positiveTotal(values) <= 0 {
 		return randomMultipleSelection(count, minRequired, maxAllowed)
 	}
@@ -98,6 +100,32 @@ func SelectedIndices(entry model.QuestionStrategy, count int, minRequired int, m
 		selected = selected[:maxAllowed]
 	}
 	return selected
+}
+
+func effectiveSelectionValues(entry model.QuestionStrategy) []float64 {
+	if strings.EqualFold(strings.TrimSpace(entry.DistributionMode), "custom") {
+		if values := ProbabilityValues(entry.CustomWeights); positiveTotal(values) > 0 {
+			return values
+		}
+	}
+	values := ProbabilityValues(entry.Probabilities)
+	if positiveTotal(values) <= 0 {
+		values = ProbabilityValues(entry.CustomWeights)
+	}
+	return values
+}
+
+func effectiveRowValues(entry model.QuestionStrategy, row int) []float64 {
+	if strings.EqualFold(strings.TrimSpace(entry.DistributionMode), "custom") {
+		if values := ProbabilityRowValues(entry.CustomWeights, row); positiveTotal(values) > 0 {
+			return values
+		}
+	}
+	values := ProbabilityRowValues(entry.Probabilities, row)
+	if positiveTotal(values) <= 0 {
+		values = ProbabilityRowValues(entry.CustomWeights, row)
+	}
+	return values
 }
 
 func SelectedTextIndex(candidates []string, raw model.WeightTable) int {

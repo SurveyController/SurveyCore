@@ -80,6 +80,19 @@ func TestParserRejectsBlockedTencentRating(t *testing.T) {
 	}
 }
 
+func TestParserRejectsUnknownTencentQuestionType(t *testing.T) {
+	_, err := buildDefinition([]map[string]any{{
+		"id": "q-unknown", "type": "new_widget", "title": "未知题型", "page_id": "p1", "page": 1,
+	}}, "测试")
+	if err == nil || !strings.Contains(err.Error(), "未知题型") {
+		t.Fatalf("error = %v", err)
+	}
+	question := normalizeQuestion(map[string]any{"id": "q-unknown", "type": "new_widget"}, 1, map[string]int{"p1\x001": 1})
+	if !question.Unsupported || question.UnsupportedReason == "" {
+		t.Fatalf("question = %#v", question)
+	}
+}
+
 func TestTencentHelpers(t *testing.T) {
 	surveyID, hashValue, err := extractIdentifiers("https://wj.qq.com/s2/123/abc_hash/")
 	if err != nil {

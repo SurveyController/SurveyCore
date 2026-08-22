@@ -17,6 +17,7 @@ const (
 	QuestionKindMultiple  QuestionKind = "multiple"
 	QuestionKindDropdown  QuestionKind = "dropdown"
 	QuestionKindScale     QuestionKind = "scale"
+	QuestionKindScore     QuestionKind = "score"
 	QuestionKindMatrix    QuestionKind = "matrix"
 	QuestionKindOrder     QuestionKind = "order"
 	QuestionKindSlider    QuestionKind = "slider"

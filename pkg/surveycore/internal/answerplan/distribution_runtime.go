@@ -13,9 +13,18 @@ const (
 	standardMinFactor     = 0.45
 	standardMaxFactor     = 2.2
 	standardGapLimit      = 0.42
+	priorityWarmupSamples = 14
+	priorityGain          = 1.75
+	priorityMinFactor     = 0.80
+	priorityMaxFactor     = 1.28
+	priorityGapLimit      = 0.28
 )
 
 func resolveDistributionProbabilities(values []float64, optionCount int, runtime model.AnswerRuntime, questionNum int, rowIndex *int) []float64 {
+	return resolveDistributionProbabilitiesWithPriority(values, optionCount, runtime, questionNum, rowIndex, false)
+}
+
+func resolveDistributionProbabilitiesWithPriority(values []float64, optionCount int, runtime model.AnswerRuntime, questionNum int, rowIndex *int, priority bool) []float64 {
 	target := normalizeDistributionTarget(values, optionCount)
 	if runtime == nil || questionNum <= 0 || optionCount <= 0 || len(target) == 0 {
 		return target
@@ -24,7 +33,11 @@ func resolveDistributionProbabilities(values []float64, optionCount int, runtime
 	if total <= 0 {
 		return target
 	}
-	sampleFactor := math.Min(1.0, float64(total)/float64(standardWarmupSamples))
+	warmupSamples, gain, minFactor, maxFactor, gapLimit := standardWarmupSamples, standardGain, standardMinFactor, standardMaxFactor, standardGapLimit
+	if priority {
+		warmupSamples, gain, minFactor, maxFactor, gapLimit = priorityWarmupSamples, priorityGain, priorityMinFactor, priorityMaxFactor, priorityGapLimit
+	}
+	sampleFactor := math.Min(1.0, float64(total)/float64(warmupSamples))
 	if sampleFactor <= 0 {
 		return target
 	}
@@ -37,9 +50,9 @@ func resolveDistributionProbabilities(values []float64, optionCount int, runtime
 		if index < len(counts) {
 			actualRatio = float64(counts[index]) / float64(total)
 		}
-		gap := math.Max(-standardGapLimit, math.Min(standardGapLimit, targetRatio-actualRatio))
-		factor := math.Exp(standardGain * sampleFactor * gap)
-		factor = math.Max(standardMinFactor, math.Min(standardMaxFactor, factor))
+		gap := math.Max(-gapLimit, math.Min(gapLimit, targetRatio-actualRatio))
+		factor := math.Exp(gain * sampleFactor * gap)
+		factor = math.Max(minFactor, math.Min(maxFactor, factor))
 		adjusted[index] = targetRatio * factor
 	}
 	return normalizeDistributionTarget(adjusted, optionCount)

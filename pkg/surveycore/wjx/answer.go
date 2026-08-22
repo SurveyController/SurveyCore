@@ -143,7 +143,7 @@ func escapeWJXSubmitText(value string) string {
 
 func actionAnswer(action answerAction) string {
 	switch action.Kind {
-	case "choice", "select", "single", "dropdown", "scale", "multiple":
+	case "choice", "select", "single", "dropdown", "scale", "score", "multiple":
 		parts := make([]string, 0, len(action.Indices))
 		for _, index := range action.Indices {
 			value := strconv.Itoa(index + 1)

@@ -93,9 +93,7 @@ func ApplySample(entries []model.QuestionStrategy, questions []model.QuestionMet
 		}
 		index, ok := entryByNum[question.Num]
 		if !ok {
-			cloned = append(cloned, answerplan.DefaultEntry(question))
-			index = len(cloned) - 1
-			entryByNum[question.Num] = index
+			continue
 		}
 		entry := cloned[index]
 		if applyQuestionSample(&entry, question, plan, sampleIndex) {
@@ -114,6 +112,7 @@ func applyQuestionSample(entry *model.QuestionStrategy, question model.QuestionM
 			return false
 		}
 		entry.Probabilities = model.OptionWeights(oneHot(optionCount(question, *entry, nil, 5), choice)...)
+		entry.CustomWeights = model.WeightTable{}
 		return true
 	case "matrix":
 		rows := maxInt(1, question.Rows)
@@ -134,6 +133,7 @@ func applyQuestionSample(entry *model.QuestionStrategy, question model.QuestionM
 		}
 		if changed {
 			entry.Probabilities = model.RowWeights(values...)
+			entry.CustomWeights = model.WeightTable{}
 		}
 		return changed
 	default:

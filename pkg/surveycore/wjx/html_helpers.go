@@ -51,7 +51,9 @@ func questionNumber(div *nethtml.Node) int {
 			return number
 		}
 	}
-	return 1
+	// A question block without a legal number cannot be mapped to the submit
+	// payload. Do not manufacture Q1 here; callers must skip it.
+	return 0
 }
 
 func questionTitle(div *nethtml.Node, fallback int) string {
@@ -230,7 +232,7 @@ func isTextLike(typeCode string, textInputs int, optionCount int, isLocation boo
 	case "3", "4", "5", "6", "7", "8", "11":
 		return false
 	}
-	return typeCode == "1" || typeCode == "2" || typeCode == "9" || textInputs > 0 || optionCount == 0
+	return textInputs > 0
 }
 
 func ratingMax(isRating bool, optionCount int) int {

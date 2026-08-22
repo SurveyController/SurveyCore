@@ -25,6 +25,9 @@ func BuildActionsWithLogic(questions []model.QuestionMeta, entries []model.Quest
 		if question.IsDescription || question.Num <= 0 {
 			continue
 		}
+		if question.Unsupported {
+			return nil, fmt.Errorf("第%d题暂不支持：%s", question.Num, question.UnsupportedReason)
+		}
 		if jumpTarget > 0 {
 			if question.Num < jumpTarget {
 				continue
@@ -36,7 +39,7 @@ func BuildActionsWithLogic(questions []model.QuestionMeta, entries []model.Quest
 		}
 		entry, ok := index.Find(question)
 		if !ok {
-			entry = DefaultEntry(question)
+			return nil, fmt.Errorf("第%d题缺少答案策略", question.Num)
 		}
 		entry = consistency.apply(question, entry)
 		action, err := BuildActionWithOptions(question, entry, options)

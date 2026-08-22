@@ -38,7 +38,7 @@ func defaultQuestionProbabilityValues(question QuestionMeta) []float64 {
 func buildDefaultQuestionStrategies(questions []QuestionMeta) []QuestionStrategy {
 	entries := make([]QuestionStrategy, 0, len(questions))
 	for _, question := range questions {
-		if question.IsDescription {
+		if question.IsDescription || question.Unsupported {
 			continue
 		}
 		num := question.Num
@@ -60,6 +60,11 @@ func buildDefaultQuestionStrategies(questions []QuestionMeta) []QuestionStrategy
 			AttachedOptionSelects: cloneAttachedOptionSelects(question.AttachedOptionSelects),
 			IsLocation:            question.IsLocation,
 			PsychoBias:            "custom",
+		}
+		if entry.QuestionType == model.QuestionKindScore {
+			entry.OptionCount = maxInt(2, entry.OptionCount)
+			entry.DistributionMode = "custom"
+			entry.CustomWeights = entry.Probabilities.Clone()
 		}
 		if len(question.ForcedTexts) > 0 {
 			entry.Texts = append([]string(nil), question.ForcedTexts...)

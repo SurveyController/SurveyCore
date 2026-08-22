@@ -137,6 +137,59 @@ func TestSelectedIndicesUsesPercentProbabilities(t *testing.T) {
 	}
 }
 
+func TestCustomDistributionPrefersCustomWeights(t *testing.T) {
+	question := model.QuestionMeta{Num: 1, ProviderType: "single", TypeCode: "3", Options: 2}
+	action, err := BuildAction(question, model.QuestionStrategy{
+		QuestionType:     model.QuestionKindSingle,
+		DistributionMode: "custom",
+		Probabilities:    model.OptionWeights(100, 0),
+		CustomWeights:    model.OptionWeights(0, 100),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(action.SelectedIndices) != 1 || action.SelectedIndices[0] != 1 {
+		t.Fatalf("selected = %#v", action.SelectedIndices)
+	}
+}
+
+func TestCustomOnlyMultipleWeightsAreNotRandomized(t *testing.T) {
+	selected := SelectedIndices(model.QuestionStrategy{
+		QuestionType:     model.QuestionKindMultiple,
+		DistributionMode: "custom",
+		CustomWeights:    model.OptionWeights(100, 0, 0),
+	}, 3, 1, 3)
+	if len(selected) != 1 || selected[0] != 0 {
+		t.Fatalf("selected = %#v", selected)
+	}
+}
+
+func TestCustomDistributionPrefersCustomWeightsForMultipleAndMatrix(t *testing.T) {
+	multiple := SelectedIndices(model.QuestionStrategy{
+		DistributionMode: "custom",
+		Probabilities:    model.OptionWeights(100, 0),
+		CustomWeights:    model.OptionWeights(0, 100),
+	}, 2, 1, 2)
+	if len(multiple) != 1 || multiple[0] != 1 {
+		t.Fatalf("multiple = %#v", multiple)
+	}
+	matrix := SelectedMatrixIndex(model.QuestionStrategy{
+		DistributionMode: "custom",
+		Probabilities:    model.RowWeights([]float64{100, 0}),
+		CustomWeights:    model.RowWeights([]float64{0, 100}),
+	}, 0, 2)
+	if matrix != 1 {
+		t.Fatalf("matrix = %d", matrix)
+	}
+}
+
+func TestBuildActionsRejectsMissingStrategy(t *testing.T) {
+	_, err := BuildActions([]model.QuestionMeta{{Num: 1, ProviderType: "single", TypeCode: "3", Options: 2}}, nil, BuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "缺少答案策略") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestResolveDistributionProbabilitiesBoostsUnderservedOption(t *testing.T) {
 	values := resolveDistributionProbabilities([]float64{1, 1}, 2, fakeAnswerRuntime{
 		total:  12,

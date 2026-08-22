@@ -89,6 +89,43 @@ func validateAnswerWeights(plan model.AnswerPlan) error {
 		if err := strategy.CustomWeights.Validate(); err != nil {
 			return err
 		}
+		weights := strategy.Probabilities
+		if strings.EqualFold(strings.TrimSpace(strategy.DistributionMode), "custom") && hasWeightValues(strategy.CustomWeights) {
+			weights = strategy.CustomWeights
+		}
+		if err := validatePositiveWeights(strategy.QuestionType, weights); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasWeightValues(weights model.WeightTable) bool {
+	return len(weights.Options) > 0 || len(weights.Rows) > 0
+}
+
+func positiveWeightCount(values []float64) int {
+	count := 0
+	for _, value := range values {
+		if value > 0 {
+			count++
+		}
+	}
+	return count
+}
+
+func validatePositiveWeights(kind model.QuestionKind, weights model.WeightTable) error {
+	switch kind {
+	case model.QuestionKindSingle, model.QuestionKindDropdown, model.QuestionKindScale, model.QuestionKindScore, model.QuestionKindMultiple:
+		if len(weights.Options) > 0 && positiveWeightCount(weights.Options) == 0 {
+			return fmt.Errorf("%s题配比不能全部为 0", kind)
+		}
+	case model.QuestionKindMatrix:
+		for index, row := range weights.Rows {
+			if len(row) > 0 && positiveWeightCount(row) == 0 {
+				return fmt.Errorf("矩阵第%d行配比不能全部为 0", index+1)
+			}
+		}
 	}
 	return nil
 }

@@ -27,8 +27,6 @@ func (c *Client) prepareReverseFillExecution(ctx context.Context, cfg *RunReques
 		}
 		populateConfigSurveyDefinition(&runCfg, definition)
 	}
-	ensureQuestionStrategies(&runCfg)
-
 	target := options.Target
 	if target <= 0 {
 		target = runCfg.Target
@@ -105,13 +103,7 @@ func applyReverseFillSample(entries []QuestionStrategy, questions []QuestionMeta
 		}
 		index, ok := entryIndex[questionNum]
 		if !ok {
-			defaults := buildDefaultQuestionStrategies([]QuestionMeta{question})
-			if len(defaults) == 0 {
-				continue
-			}
-			cloned = append(cloned, defaults[0])
-			index = len(cloned) - 1
-			entryIndex[questionNum] = index
+			return nil, fmt.Errorf("%w: 第%d题缺少答案策略", ErrPrepareConfigFailed, questionNum)
 		}
 		entry := cloned[index]
 		if err := applyReverseFillAnswer(&entry, question, answer); err != nil {

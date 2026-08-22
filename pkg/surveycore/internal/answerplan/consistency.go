@@ -44,7 +44,7 @@ func (p *consistencyPlan) apply(question model.QuestionMeta, entry model.Questio
 	}
 	kind := normalizeKind(question, entry)
 	switch kind {
-	case "single", "dropdown", "scale":
+	case "single", "dropdown", "scale", "score":
 		return p.applySingleLike(question.Num, entry, nil)
 	case "matrix":
 		return p.applyMatrix(question, entry)
@@ -60,12 +60,13 @@ func (p *consistencyPlan) applySingleLike(questionNum int, entry model.QuestionS
 	if rule == nil {
 		return entry
 	}
-	values := ProbabilityValues(entry.Probabilities)
+	values := effectiveSelectionValues(entry)
 	adjusted, ok := applyRuleToProbabilities(values, *rule)
 	if !ok {
 		return entry
 	}
 	entry.Probabilities = model.OptionWeights(adjusted...)
+	entry.CustomWeights = model.WeightTable{}
 	return entry
 }
 
@@ -76,9 +77,9 @@ func (p *consistencyPlan) applyMatrix(question model.QuestionMeta, entry model.Q
 	changed := false
 	for row := 0; row < rows; row++ {
 		rowIndex := row
-		values := ProbabilityRowValues(entry.Probabilities, row)
+		values := effectiveRowValues(entry, row)
 		if len(values) == 0 {
-			values = ProbabilityValues(entry.Probabilities)
+			values = effectiveSelectionValues(entry)
 		}
 		values = fitProbabilityCount(values, options)
 		rule := p.latestTriggeredRule(question.Num, &rowIndex)
@@ -92,6 +93,7 @@ func (p *consistencyPlan) applyMatrix(question model.QuestionMeta, entry model.Q
 	}
 	if changed {
 		entry.Probabilities = model.RowWeights(matrix...)
+		entry.CustomWeights = model.WeightTable{}
 	}
 	return entry
 }
@@ -102,7 +104,7 @@ func (p *consistencyPlan) applyMultiple(question model.QuestionMeta, entry model
 		return entry
 	}
 	count := maxInt(1, maxInt(question.Options, entry.OptionCount))
-	rawValues := ProbabilityValues(entry.Probabilities)
+	rawValues := effectiveSelectionValues(entry)
 	values := fitProbabilityCount(rawValues, count)
 	// An all-zero multiple-choice entry has no meaningful fallback weights.
 	// Keep it zeroed so must_select does not introduce random extra choices.
@@ -114,6 +116,7 @@ func (p *consistencyPlan) applyMultiple(question model.QuestionMeta, entry model
 		return entry
 	}
 	entry.Probabilities = model.OptionWeights(adjusted...)
+	entry.CustomWeights = model.WeightTable{}
 	return entry
 }
 

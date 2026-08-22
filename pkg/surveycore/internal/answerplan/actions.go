@@ -1,6 +1,7 @@
 package answerplan
 
 import (
+	"fmt"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/defaults"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
 )
@@ -38,9 +39,12 @@ func BuildActions(questions []model.QuestionMeta, entries []model.QuestionStrate
 		if question.IsDescription {
 			continue
 		}
+		if question.Unsupported {
+			return nil, fmt.Errorf("第%d题暂不支持：%s", question.Num, question.UnsupportedReason)
+		}
 		entry, ok := index.Find(question)
 		if !ok {
-			entry = DefaultEntry(question)
+			return nil, fmt.Errorf("第%d题缺少答案策略", question.Num)
 		}
 		entry = consistency.apply(question, entry)
 		action, err := BuildActionWithOptions(question, entry, options)

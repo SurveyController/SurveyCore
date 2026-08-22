@@ -188,18 +188,25 @@ func normalizeTitle(raw string) string {
 
 func rejectBlockedQuestions(questions []model.QuestionMeta) error {
 	var blocked []string
+	var unsupported []string
 	for _, question := range questions {
 		if question.IsDescription {
 			continue
 		}
 		label := blockedRuntimeProviderTypes[question.ProviderType]
-		if label == "" {
+		if label != "" {
+			blocked = append(blocked, fmt.Sprintf("第 %d 题：%s（%s）", question.Num, question.Title, label))
 			continue
 		}
-		blocked = append(blocked, fmt.Sprintf("第 %d 题：%s（%s）", question.Num, question.Title, label))
+		if question.Unsupported {
+			unsupported = append(unsupported, fmt.Sprintf("第 %d 题：%s（%s）", question.Num, question.Title, firstString(question.UnsupportedReason, question.ProviderType, question.TypeCode, "unknown")))
+		}
 	}
-	if len(blocked) == 0 {
+	if len(blocked) == 0 && len(unsupported) == 0 {
 		return nil
 	}
-	return ParseError{Message: "腾讯问卷当前版本暂不支持量表、矩阵量表题，请改用 v3.2.2 旧版本：\n" + strings.Join(blocked, "\n")}
+	if len(blocked) > 0 {
+		return ParseError{Message: "腾讯问卷当前版本暂不支持量表、矩阵量表题，请改用 v3.2.2 旧版本：\n" + strings.Join(blocked, "\n")}
+	}
+	return ParseError{Message: "腾讯问卷包含当前版本不支持的题型：\n" + strings.Join(unsupported, "\n")}
 }

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	nethtml "golang.org/x/net/html"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	nethtml "golang.org/x/net/html"
 )
 
 func (p Parser) Parse(ctx context.Context, surveyURL string) (model.SurveyDefinition, error) {
@@ -50,6 +50,9 @@ func ParseDefinitionFromHTML(htmlText string) (model.SurveyDefinition, error) {
 		visible := 0
 		for _, questionDiv := range directQuestionDivs(fieldset) {
 			question := normalizeQuestion(questionDiv, pageIndex+1)
+			if question.Num <= 0 {
+				continue
+			}
 			if !isHidden(questionDiv) {
 				visible++
 				if question.Num != visible {
@@ -130,8 +133,16 @@ func normalizeQuestion(div *nethtml.Node, page int) model.QuestionMeta {
 		optionTexts, _ = choiceTexts(div)
 	}
 	multiMin, multiMax := multiLimits(div, typeCode)
-	forcedIdx, forcedText := forceSelectOption(title, optionTexts)
 	providerType := providerType(typeCode, textInputs, len(optionTexts), isSliderMatrix)
+	if rating {
+		// WJX has two type-5 controls: numeric scales and rating widgets. Keep
+		// the latter distinct so answer planning can apply score semantics.
+		providerType = "score"
+	}
+	forcedIdx, forcedText := (*int)(nil), ""
+	if providerType == "single" || providerType == "score" || providerType == "dropdown" {
+		forcedIdx, forcedText = forceSelectOption(title, optionTexts)
+	}
 	textLabels := textInputLabels(div)
 	attachedSelects := attachedOptionSelects(div, optionTexts)
 	slider := sliderRange(div)
@@ -139,6 +150,11 @@ func normalizeQuestion(div *nethtml.Node, page int) model.QuestionMeta {
 	if isDescription {
 		typeCode = "0"
 		providerType = "description"
+	}
+	unsupported := !isDescription && (!wjxSupportedTypeCode(typeCode) || ((typeCode == "1" || typeCode == "2" || typeCode == "9") && textInputs <= 0))
+	unsupportedReason := ""
+	if unsupported {
+		unsupportedReason = "问卷星题型缺少合法文本输入或暂不支持：" + firstNonEmpty(typeCode, "unknown")
 	}
 	return model.QuestionMeta{
 		Num:             num,
@@ -183,5 +199,16 @@ func normalizeQuestion(div *nethtml.Node, page int) model.QuestionMeta {
 		FillableOptions:         fillable,
 		AttachedOptionSelects:   attachedSelects,
 		HasAttachedOptionSelect: len(attachedSelects) > 0,
+		Unsupported:             unsupported,
+		UnsupportedReason:       unsupportedReason,
+	}
+}
+
+func wjxSupportedTypeCode(typeCode string) bool {
+	switch strings.TrimSpace(typeCode) {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9", "11", "33", "34":
+		return true
+	default:
+		return false
 	}
 }

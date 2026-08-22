@@ -116,3 +116,47 @@ func TestParserFetchesHTML(t *testing.T) {
 		t.Fatalf("definition = %#v", definition)
 	}
 }
+
+func TestParserPreservesScoreAndDoesNotGuessTextOrQuestionNumber(t *testing.T) {
+	definition, err := ParseDefinitionFromHTML(`
+<html><body><div id="divQuestion"><fieldset>
+  <div topic="1" id="div1" type="5">
+    <div class="topichtml">1. 评分</div>
+    <div class="evaluateTagWrap"><a class="rate-off" val="1">1</a><a class="rate-off" val="2">2</a><a class="rate-off" val="3">3</a></div>
+  </div>
+  <div topic="2" id="div2" type="1"><div class="topichtml">2. 缺少输入框</div></div>
+  <div topic="3" id="div3" type="99"><div class="topichtml">3. 未知题型</div></div>
+  <div type="3"><div class="topichtml">没有题号</div><div class="ui-controlgroup"><div><span class="label">A</span></div></div></div>
+</fieldset></div></body></html>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definition.Questions) != 3 {
+		t.Fatalf("questions = %#v", definition.Questions)
+	}
+	score := definition.Questions[0]
+	if score.ProviderType != "score" || !score.IsRating || score.RatingMax != 3 {
+		t.Fatalf("score = %#v", score)
+	}
+	text := definition.Questions[1]
+	if text.ProviderType == "text" || text.IsTextLike {
+		t.Fatalf("text fallback = %#v", text)
+	}
+	unknown := definition.Questions[2]
+	if !unknown.Unsupported || unknown.ProviderType != "" {
+		t.Fatalf("unknown = %#v", unknown)
+	}
+}
+
+func TestForceSelectOnlyAppliesToSupportedChoiceKinds(t *testing.T) {
+	definition, err := ParseDefinitionFromHTML(`
+<html><body><div id="divQuestion"><fieldset>
+  <div topic="1" id="div1" type="4"><div class="topichtml">1. 请务必选择A</div><div class="ui-controlgroup"><div><span class="label">A</span></div><div><span class="label">B</span></div></div></div>
+</fieldset></div></body></html>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definition.Questions) != 1 || definition.Questions[0].ForcedOptionIdx != nil {
+		t.Fatalf("multiple forced option = %#v", definition.Questions)
+	}
+}

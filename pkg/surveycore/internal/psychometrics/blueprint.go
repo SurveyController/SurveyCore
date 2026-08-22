@@ -127,6 +127,9 @@ func optionCount(question model.QuestionMeta, entry model.QuestionStrategy, rowI
 	if entry.OptionCount > 0 {
 		return maxInt(2, entry.OptionCount)
 	}
+	if values := answerplan.ProbabilityValues(entry.CustomWeights); len(values) > 0 {
+		return maxInt(2, len(values))
+	}
 	if values := answerplan.ProbabilityValues(entry.Probabilities); len(values) > 0 {
 		return maxInt(2, len(values))
 	}
@@ -136,10 +139,21 @@ func optionCount(question model.QuestionMeta, entry model.QuestionStrategy, rowI
 func probabilitiesForEntry(entry model.QuestionStrategy, rowIndex *int, count int) []float64 {
 	var values []float64
 	if rowIndex != nil {
-		values = answerplan.ProbabilityRowValues(entry.Probabilities, *rowIndex)
+		if strings.EqualFold(strings.TrimSpace(entry.DistributionMode), "custom") {
+			values = answerplan.ProbabilityRowValues(entry.CustomWeights, *rowIndex)
+		}
+		if positiveTotal(values) <= 0 {
+			values = answerplan.ProbabilityRowValues(entry.Probabilities, *rowIndex)
+		}
 	}
-	if len(values) == 0 {
+	if positiveTotal(values) <= 0 && strings.EqualFold(strings.TrimSpace(entry.DistributionMode), "custom") {
+		values = answerplan.ProbabilityValues(entry.CustomWeights)
+	}
+	if positiveTotal(values) <= 0 {
 		values = answerplan.ProbabilityValues(entry.Probabilities)
+	}
+	if positiveTotal(values) <= 0 {
+		values = answerplan.ProbabilityValues(entry.CustomWeights)
 	}
 	if len(values) == 0 {
 		return nil

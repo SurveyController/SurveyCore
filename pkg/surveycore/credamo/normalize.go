@@ -44,7 +44,9 @@ func normalizeQuestion(raw map[string]any, fallbackNum int) model.QuestionMeta {
 	textInputs := intValue(raw["text_inputs"])
 	questionKind := strings.ToLower(strings.TrimSpace(stringValue(raw["question_kind"])))
 	typeCode := inferTypeCode(questionKind, len(optionTexts), textInputs)
-	isDescription := !(len(optionTexts) > 0 || textInputs > 0 || containsString([]string{"single", "multiple", "dropdown", "scale", "order", "matrix", "text", "multi_text"}, questionKind))
+	knownKind := isKnownQuestionKind(questionKind)
+	isDescription := questionKind == "" && len(optionTexts) == 0 && textInputs == 0
+	unsupported := !isDescription && !knownKind
 	if isDescription {
 		typeCode = "0"
 	}
@@ -65,33 +67,35 @@ func normalizeQuestion(raw map[string]any, fallbackNum int) model.QuestionMeta {
 	multiMin, multiMax := multiLimitsFromText(rawTitle, len(optionTexts), extraFragments)
 
 	return model.QuestionMeta{
-		Num:             questionNum,
-		Title:           title,
-		Description:     "",
-		TypeCode:        typeCode,
-		Options:         len(optionTexts),
-		Rows:            maxInt(1, len(rowTexts)),
-		RowTexts:        rowTexts,
-		Page:            maxInt(1, intValue(raw["page"])),
-		OptionTexts:     optionTexts,
-		Provider:        model.ProviderCredamo,
-		ProviderID:      stringValue(firstAny(raw["question_id"], questionNum)),
-		ProviderPageID:  stringValue(firstAny(raw["page"], 1)),
-		ProviderType:    strings.TrimSpace(stringValue(firstAny(raw["provider_type"], questionKind, typeCode))),
-		Required:        boolValue(raw["required"]),
-		IsDescription:   isDescription,
-		IsRating:        false,
-		RatingMax:       ratingMax,
-		TextInputs:      maxInt(0, textInputs),
-		IsTextLike:      questionKind == "text" || questionKind == "multi_text" || (textInputs > 0 && len(optionTexts) == 0),
-		IsMultiText:     questionKind == "multi_text" || textInputs > 1,
-		QuestionLogic:   model.QuestionLogic{LogicStatus: model.LogicParseStatusNone},
-		ForcedOptionIdx: forcedIdx,
-		ForcedOption:    forcedOption,
-		ForcedTexts:     forcedTexts,
-		FillableOptions: intList(raw["fillable_options"]),
-		MultiMinLimit:   multiMin,
-		MultiMaxLimit:   multiMax,
+		Num:               questionNum,
+		Title:             title,
+		Description:       "",
+		TypeCode:          typeCode,
+		Options:           len(optionTexts),
+		Rows:              maxInt(1, len(rowTexts)),
+		RowTexts:          rowTexts,
+		Page:              maxInt(1, intValue(raw["page"])),
+		OptionTexts:       optionTexts,
+		Provider:          model.ProviderCredamo,
+		ProviderID:        stringValue(firstAny(raw["question_id"], questionNum)),
+		ProviderPageID:    stringValue(firstAny(raw["page"], 1)),
+		ProviderType:      strings.TrimSpace(stringValue(firstAny(raw["provider_type"], questionKind, typeCode))),
+		Required:          boolValue(raw["required"]),
+		IsDescription:     isDescription,
+		IsRating:          false,
+		RatingMax:         ratingMax,
+		TextInputs:        maxInt(0, textInputs),
+		IsTextLike:        !unsupported && (questionKind == "text" || questionKind == "multi_text" || (textInputs > 0 && len(optionTexts) == 0)),
+		IsMultiText:       questionKind == "multi_text" || textInputs > 1,
+		QuestionLogic:     model.QuestionLogic{LogicStatus: model.LogicParseStatusNone},
+		ForcedOptionIdx:   forcedIdx,
+		ForcedOption:      forcedOption,
+		ForcedTexts:       forcedTexts,
+		FillableOptions:   intList(raw["fillable_options"]),
+		MultiMinLimit:     multiMin,
+		MultiMaxLimit:     multiMax,
+		Unsupported:       unsupported,
+		UnsupportedReason: unsupportedReason(questionKind),
 	}
 }
 
@@ -135,13 +139,27 @@ func inferTypeCode(questionKind string, optionCount int, textInputs int) string 
 	case "text", "multi_text":
 		return "1"
 	}
-	if textInputs > 0 {
-		return "1"
+	return "0"
+}
+
+func isKnownQuestionKind(questionKind string) bool {
+	switch strings.ToLower(strings.TrimSpace(questionKind)) {
+	case "single", "multiple", "dropdown", "scale", "order", "matrix", "text", "multi_text":
+		return true
+	default:
+		return false
 	}
-	if optionCount >= 2 {
-		return "3"
+}
+
+func unsupportedReason(questionKind string) string {
+	questionKind = strings.TrimSpace(questionKind)
+	if isKnownQuestionKind(questionKind) {
+		return ""
 	}
-	return "1"
+	if questionKind == "" {
+		return "见数未知题型"
+	}
+	return "见数暂不支持题型：" + questionKind
 }
 
 func resolveMatrixOptionTexts(raw map[string]any, optionTexts []string) []string {
@@ -170,5 +188,8 @@ func resolveMatrixOptionTexts(raw map[string]any, optionTexts []string) []string
 }
 
 func isAnswerableQuestion(question model.QuestionMeta) bool {
+	if question.IsDescription || question.Unsupported {
+		return false
+	}
 	return question.Options > 0 || question.TextInputs > 0 || containsString([]string{"3", "4", "5", "6", "7", "11"}, question.TypeCode)
 }

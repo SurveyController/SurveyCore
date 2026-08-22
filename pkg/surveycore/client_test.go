@@ -14,6 +14,8 @@ import (
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
 )
 
+func intPtr(value int) *int { return &value }
+
 func TestParseAndDefaultConfig(t *testing.T) {
 	server := newCredamoTestServer(t, true)
 	client := New()
@@ -121,6 +123,9 @@ func TestRunWJXRandomUserAgent(t *testing.T) {
 	result, err := New(WithHTTPClient(rewriteWJXHTTPClient(server.URL))).RunWithExecutionOptions(context.Background(), &RunRequest{
 		SurveySource:  SurveySource{URL: "https://www.wjx.cn/vm/demo.aspx", Provider: ProviderWJX},
 		ExecutionPlan: ExecutionPlan{Target: 1},
+		AnswerPlan: AnswerPlan{Strategies: []QuestionStrategy{{
+			QuestionNum: intPtr(1), QuestionType: model.QuestionKindSingle, Probabilities: model.OptionWeights(1, 1), OptionCount: 2,
+		}}},
 	}, nil, ExecutionOptions{UserAgent: model.UserAgentSettings{Enabled: true, Ratios: map[string]int{"wechat": 0, "mobile": 0, "pc": 100}}})
 	if err != nil {
 		t.Fatal(err)
@@ -146,6 +151,12 @@ func TestRunTencentSubmitsWithEvents(t *testing.T) {
 	result, err := New(WithHTTPClient(rewriteTencentHTTPClient(server.URL))).RunWithEvents(context.Background(), &RunRequest{
 		SurveySource:  SurveySource{URL: "https://wj.qq.com/s2/123/hashvalue/", Provider: ProviderQQ},
 		ExecutionPlan: ExecutionPlan{Target: 1},
+		AnswerPlan: AnswerPlan{Strategies: []QuestionStrategy{
+			{QuestionNum: intPtr(1), QuestionType: model.QuestionKindSingle, Probabilities: model.OptionWeights(1, 1), OptionCount: 2},
+			{QuestionNum: intPtr(2), QuestionType: model.QuestionKindMultiple, Probabilities: model.OptionWeights(50, 50), OptionCount: 2},
+			{QuestionNum: intPtr(3), QuestionType: model.QuestionKindText, Probabilities: model.OptionWeights(1), Texts: []string{"测试"}},
+			{QuestionNum: intPtr(4), QuestionType: model.QuestionKindMatrix, Probabilities: model.RowWeights([]float64{1, 1}, []float64{1, 1}), OptionCount: 2, Rows: 2},
+		}},
 	}, func(event Event) {
 		events = append(events, event)
 	})
@@ -360,6 +371,31 @@ func TestRunErrors(t *testing.T) {
 	_, err = Run(context.Background(), cfg)
 	if !errors.Is(err, ErrRunFailed) {
 		t.Fatalf("run error = %v", err)
+	}
+}
+
+func TestSurveyURLValidationUsesHostProtocolAndPath(t *testing.T) {
+	valid := []string{
+		"https://www.wjx.cn/vm/demo.aspx",
+		"https://wj.qq.com/s2/123/hashvalue/",
+		"https://www.credamo.com/answer.html#/s/demo_",
+	}
+	for _, raw := range valid {
+		if !IsSupportedURL(raw) {
+			t.Errorf("valid survey URL rejected: %s", raw)
+		}
+	}
+	invalid := []string{
+		"https://wjx.cn.evil.example/vm/demo.aspx",
+		"https://www.wjx.cn/not-a-survey",
+		"ftp://www.wjx.cn/vm/demo.aspx",
+		"https://www.credamo.com/answer.html.evil#/s/demo_",
+		"https://example.com/?next=https://wj.qq.com/s2/1/hash",
+	}
+	for _, raw := range invalid {
+		if IsSupportedURL(raw) {
+			t.Errorf("invalid survey URL accepted: %s", raw)
+		}
 	}
 }
 

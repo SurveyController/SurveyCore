@@ -160,3 +160,43 @@ func TestBuildAnswerItemsAppliesAnswerRules(t *testing.T) {
 		t.Fatalf("items = %#v", items)
 	}
 }
+
+func TestUnknownAndDescriptionQuestionsAreNotSubmitted(t *testing.T) {
+	request := &model.SubmissionRequest{Context: model.SubmissionContext{Actions: []model.AnswerAction{{QuestionNum: 2, Kind: model.QuestionKindSingle, SelectedIndices: []int{0}}}}}
+	items, err := buildAnswerItems([]map[string]any{
+		{"qstNo": "Q1", "qstId": "intro", "questionType": 0, "qstTitle": "说明"},
+		{"qstNo": "Q2", "qstId": "known", "questionType": 2, "selector": 1, "choices": []any{map[string]any{"choiceId": 1}}},
+		{"qstNo": "Q3", "qstId": "unknown", "questionType": 99, "choices": []any{map[string]any{"choiceId": 2}}},
+	}, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0]["qstId"] != "known" {
+		t.Fatalf("items = %#v", items)
+	}
+	unknown := normalizeQuestion(rawToNormalizedInput(map[string]any{"qstNo": "Q3", "questionType": 99, "choices": []any{map[string]any{"choiceId": 2}}}, 3), 3)
+	if !unknown.Unsupported || unknown.TypeCode == "3" || isAnswerableQuestion(unknown) {
+		t.Fatalf("unknown = %#v", unknown)
+	}
+}
+
+func TestBuildAnswerItemsRejectsOutOfRangeIndices(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  map[string]any
+		act  model.AnswerAction
+	}{
+		{"choice", map[string]any{"qstNo": "Q1", "questionType": 2, "selector": 1, "choices": []any{map[string]any{"choiceId": 1}}}, model.AnswerAction{QuestionNum: 1, Kind: model.QuestionKindSingle, SelectedIndices: []int{2}}},
+		{"matrix", map[string]any{"qstNo": "Q1", "questionType": 4, "choices": []any{map[string]any{"choiceId": 1}}, "answers": []any{map[string]any{"answerId": 2}}}, model.AnswerAction{QuestionNum: 1, Kind: model.QuestionKindMatrix, MatrixIndices: []int{-1}}},
+		{"matrix missing row", map[string]any{"qstNo": "Q1", "questionType": 4, "choices": []any{map[string]any{"choiceId": 1}}, "answers": []any{map[string]any{"answerId": 2}}}, model.AnswerAction{QuestionNum: 1, Kind: model.QuestionKindMatrix}},
+		{"order", map[string]any{"qstNo": "Q1", "questionType": 6, "choices": []any{map[string]any{"choiceId": 1}}}, model.AnswerAction{QuestionNum: 1, Kind: model.QuestionKindOrder, SelectedIndices: []int{3}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := buildAnswerItems([]map[string]any{tc.raw}, &model.SubmissionRequest{Context: model.SubmissionContext{Actions: []model.AnswerAction{tc.act}}})
+			if err == nil {
+				t.Fatal("expected controlled bounds error")
+			}
+		})
+	}
+}
