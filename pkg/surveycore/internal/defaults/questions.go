@@ -1,6 +1,6 @@
 package defaults
 
-import "github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+import "github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 
 func QuestionType(question model.QuestionMeta) string {
 	switch question.ProviderType {

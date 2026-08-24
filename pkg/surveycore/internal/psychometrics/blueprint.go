@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/answerplan"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 func buildBlueprint(cfg *model.RunRequest) map[string][]Item {

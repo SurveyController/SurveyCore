@@ -2,7 +2,7 @@ package psychometrics
 
 import (
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/answerplan"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 const (

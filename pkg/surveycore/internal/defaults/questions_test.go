@@ -3,7 +3,7 @@ package defaults
 import (
 	"testing"
 
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 func TestQuestionTypeDoesNotTreatUnknownAsText(t *testing.T) {

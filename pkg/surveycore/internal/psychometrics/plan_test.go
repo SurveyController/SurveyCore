@@ -3,7 +3,7 @@ package psychometrics
 import (
 	"testing"
 
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 func TestBuildJointPlanAppliesScaleSamples(t *testing.T) {

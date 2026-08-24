@@ -3,192 +3,137 @@ package surveycore
 import (
 	"context"
 	"net/http"
-	"net/url"
-	"regexp"
-	"strings"
 
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/credamo"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/httpjson"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/tencent"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/wjx"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
+	surveyRuntime "github.com/SurveyController/SurveyCore/pkg/surveycore/runtime"
 )
 
+// Client parses surveys, builds default configurations, and submits responses.
+// A Client must not be reconfigured after first use. Event callbacks may run
+// concurrently when a request uses more than one worker.
 type Client struct {
-	httpClient             HTTPClient
-	aiAPIKey               string
-	aiBaseURL              string
-	aiModel                string
-	aiTextResolver         AITextResolver
-	freeAIIdentityProvider FreeAIIdentityProvider
+	inner *surveyRuntime.Client
 }
 
-type Option func(*Client)
+type clientOptions struct {
+	runtime []surveyRuntime.Option
+}
 
+// Option configures a Client.
+type Option func(*clientOptions)
+
+// New creates a high-level SurveyCore client.
 func New(opts ...Option) *Client {
-	c := &Client{}
+	options := clientOptions{}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(c)
+			opt(&options)
 		}
 	}
-	return c
+	return &Client{inner: surveyRuntime.New(options.runtime...)}
 }
 
+// WithHTTPClient injects the HTTP client used for provider requests.
 func WithHTTPClient(client *http.Client) Option {
-	return func(c *Client) {
-		c.httpClient = HTTPClient{Client: client}
+	return func(options *clientOptions) {
+		options.runtime = append(options.runtime, surveyRuntime.WithHTTPClient(client))
 	}
 }
 
+// WithAI configures the default AI provider used for generated text answers.
 func WithAI(apiKey string, baseURL string, modelName string) Option {
-	return func(c *Client) {
-		c.aiAPIKey = strings.TrimSpace(apiKey)
-		c.aiBaseURL = strings.TrimSpace(baseURL)
-		c.aiModel = strings.TrimSpace(modelName)
+	return func(options *clientOptions) {
+		options.runtime = append(options.runtime, surveyRuntime.WithAI(apiKey, baseURL, modelName))
 	}
 }
 
+// AITextRequest describes one text-answer generation request.
+type AITextRequest struct {
+	QuestionNum int
+	Title       string
+	Description string
+	BlankCount  int
+}
+
+// AITextResolver generates text answers for a question.
+type AITextResolver interface {
+	ResolveText(ctx context.Context, profile model.AIProfile, persona *model.Persona, request AITextRequest) ([]string, error)
+}
+
+// AITextResolverFunc adapts a function to AITextResolver.
+type AITextResolverFunc func(ctx context.Context, profile model.AIProfile, persona *model.Persona, request AITextRequest) ([]string, error)
+
+// ResolveText implements AITextResolver.
+func (fn AITextResolverFunc) ResolveText(ctx context.Context, profile model.AIProfile, persona *model.Persona, request AITextRequest) ([]string, error) {
+	return fn(ctx, profile, persona, request)
+}
+
+type aiTextResolverAdapter struct {
+	resolver AITextResolver
+}
+
+func (adapter aiTextResolverAdapter) ResolveText(ctx context.Context, profile model.AIProfile, persona *model.Persona, request surveyRuntime.AITextRequest) ([]string, error) {
+	return adapter.resolver.ResolveText(ctx, profile, persona, AITextRequest(request))
+}
+
+// WithAITextResolver replaces the default AI text resolver.
 func WithAITextResolver(resolver AITextResolver) Option {
-	return func(c *Client) {
-		c.aiTextResolver = resolver
+	return func(options *clientOptions) {
+		if resolver != nil {
+			options.runtime = append(options.runtime, surveyRuntime.WithAITextResolver(aiTextResolverAdapter{resolver: resolver}))
+		}
 	}
 }
 
-func WithFreeAIIdentityProvider(provider FreeAIIdentityProvider) Option {
-	return func(c *Client) {
-		c.freeAIIdentityProvider = provider
-	}
+// Parse reads a survey definition without submitting a response.
+func (client *Client) Parse(ctx context.Context, surveyURL string) (*model.SurveyDefinition, error) {
+	return client.inner.Parse(ctx, surveyURL)
 }
 
-func Parse(ctx context.Context, surveyURL string) (*SurveyDefinition, error) {
+// DefaultConfig parses a survey and builds a runnable default configuration.
+func (client *Client) DefaultConfig(ctx context.Context, surveyURL string) (*model.RunRequest, error) {
+	return client.inner.DefaultConfig(ctx, surveyURL)
+}
+
+// Run submits responses according to cfg.
+func (client *Client) Run(ctx context.Context, cfg *model.RunRequest) (*RunResult, error) {
+	return client.inner.Run(ctx, cfg)
+}
+
+// EventHandler receives execution progress events. Calls may come from worker goroutines.
+type EventHandler func(Event)
+
+// RunWithEvents submits responses and reports progress through handler.
+func (client *Client) RunWithEvents(ctx context.Context, cfg *model.RunRequest, handler EventHandler) (*RunResult, error) {
+	if handler == nil {
+		return client.inner.RunWithEvents(ctx, cfg, nil)
+	}
+	return client.inner.RunWithEvents(ctx, cfg, func(event surveyRuntime.Event) {
+		handler(Event(event))
+	})
+}
+
+// Parse uses a default Client to read a survey definition.
+func Parse(ctx context.Context, surveyURL string) (*model.SurveyDefinition, error) {
 	return New().Parse(ctx, surveyURL)
 }
 
-func DefaultConfig(ctx context.Context, surveyURL string) (*RunRequest, error) {
+// DefaultConfig uses a default Client to build a runnable configuration.
+func DefaultConfig(ctx context.Context, surveyURL string) (*model.RunRequest, error) {
 	return New().DefaultConfig(ctx, surveyURL)
 }
 
-func Run(ctx context.Context, cfg *RunRequest) (*RunResult, error) {
+// Run uses a default Client to submit responses.
+func Run(ctx context.Context, cfg *model.RunRequest) (*RunResult, error) {
 	return New().Run(ctx, cfg)
 }
 
+// RunWithEvents uses a default Client to submit responses and report progress.
+func RunWithEvents(ctx context.Context, cfg *model.RunRequest, handler EventHandler) (*RunResult, error) {
+	return New().RunWithEvents(ctx, cfg, handler)
+}
+
+// IsSupportedURL reports whether a URL matches a supported survey provider.
 func IsSupportedURL(rawURL string) bool {
-	parsed, ok := parseSurveyURL(rawURL)
-	if !ok {
-		return false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	path := parsed.Path
-	if isHost(host, "wjx.cn", "wjx.com", "wjx.top") {
-		return wjxSurveyPathRE.MatchString(path)
-	}
-	if host == "wj.qq.com" {
-		return regexp.MustCompile(`(?i)^/s\d+/\d+/[A-Za-z0-9_-]+/?$`).MatchString(path)
-	}
-	if isHost(host, "credamo.com", "credamo.cn") {
-		if regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`).MatchString(path) {
-			return true
-		}
-		if !strings.EqualFold(strings.TrimRight(path, "/"), "/answer.html") {
-			return false
-		}
-		fragment := strings.Trim(strings.SplitN(strings.TrimSpace(parsed.Fragment), "?", 2)[0], "/")
-		parts := strings.Split(fragment, "/")
-		return len(parts) == 2 && strings.EqualFold(parts[0], "s") && regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(parts[1])
-	}
-	return false
-}
-
-func surveyHostPath(raw string) (string, string) {
-	parsed, ok := parseSurveyURL(raw)
-	if !ok {
-		return "", ""
-	}
-	return strings.ToLower(parsed.Hostname()), parsed.Path
-}
-
-var wjxSurveyPathRE = regexp.MustCompile(`(?i)^/(?:vm|m|vj|v|s)/[A-Za-z0-9_-]+(?:\.aspx)?/?$`)
-
-func parseSurveyURL(raw string) (*url.URL, bool) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return nil, false
-	}
-	// Keep accepting the historical scheme-less QR form, but validate every
-	// explicit scheme instead of dispatching from arbitrary string fragments.
-	if !strings.Contains(text, "://") {
-		text = "https://" + text
-	}
-	parsed, err := url.Parse(text)
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
-		return nil, false
-	}
-	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
-	if scheme != "http" && scheme != "https" {
-		return nil, false
-	}
-	return parsed, true
-}
-func isHost(host string, domains ...string) bool {
-	for _, d := range domains {
-		if host == d || strings.HasSuffix(host, "."+d) {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *Client) parserFor(url string) (Parser, error) {
-	switch detectProvider(url) {
-	case model.ProviderCredamo:
-		return credamo.Parser{HTTP: httpClientOrDefault(c.httpClient)}, nil
-	case model.ProviderQQ:
-		return tencent.Parser{HTTP: httpClientOrDefault(c.httpClient)}, nil
-	case model.ProviderWJX:
-		return wjx.Parser{Client: c.httpClient.Client}, nil
-	default:
-		return nil, ErrUnsupportedOperation
-	}
-}
-
-func httpClientOrDefault(client HTTPClient) httpjson.Client {
-	return httpjson.Client{Client: client.Client}
-}
-
-func detectProvider(rawURL string) string {
-	parsed, ok := parseSurveyURL(rawURL)
-	if !ok {
-		return ""
-	}
-	host := strings.ToLower(parsed.Hostname())
-	path := parsed.Path
-	switch {
-	case isHost(host, "credamo.com", "credamo.cn") && credamoSurveyPath(parsed):
-		return model.ProviderCredamo
-	case (host == "127.0.0.1" || host == "localhost") && credamoSurveyPath(parsed):
-		return model.ProviderCredamo
-	case host == "wj.qq.com" && regexp.MustCompile(`(?i)^/s\d+/\d+/[A-Za-z0-9_-]+/?$`).MatchString(path):
-		return model.ProviderQQ
-	case isHost(host, "wjx.cn", "wjx.com", "wjx.top") && wjxSurveyPathRE.MatchString(path):
-		return model.ProviderWJX
-	default:
-		return ""
-	}
-}
-
-func credamoSurveyPath(parsed *url.URL) bool {
-	if parsed == nil {
-		return false
-	}
-	path := parsed.Path
-	if regexp.MustCompile(`(?i)^/s/[A-Za-z0-9_-]+/?$`).MatchString(path) {
-		return true
-	}
-	if !strings.EqualFold(strings.TrimRight(path, "/"), "/answer.html") {
-		return false
-	}
-	fragment := strings.Trim(strings.SplitN(strings.TrimSpace(parsed.Fragment), "?", 2)[0], "/")
-	parts := strings.Split(fragment, "/")
-	return len(parts) == 2 && strings.EqualFold(parts[0], "s") && regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(parts[1])
+	return surveyRuntime.IsSupportedURL(rawURL)
 }

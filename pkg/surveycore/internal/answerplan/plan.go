@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/runerror"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 type Action struct {

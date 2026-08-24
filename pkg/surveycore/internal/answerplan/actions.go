@@ -3,7 +3,7 @@ package answerplan
 import (
 	"fmt"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/defaults"
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 type BuildOptions struct {

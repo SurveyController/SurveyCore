@@ -1,6 +1,6 @@
 package answerplan
 
-import "github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+import "github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 
 const (
 	conditionSelected    = "selected"

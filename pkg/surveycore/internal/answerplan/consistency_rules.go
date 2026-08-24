@@ -3,7 +3,7 @@ package answerplan
 import (
 	"strings"
 
-	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 func parseRules(raw []model.ConsistencyRule) []answerRule {
