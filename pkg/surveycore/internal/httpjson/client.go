@@ -51,7 +51,7 @@ func (c Client) DoJSON(ctx context.Context, method string, url string, headers m
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("http %d: %s", resp.StatusCode, string(data))
+		return fmt.Errorf("http %d", resp.StatusCode)
 	}
 	if out == nil {
 		return nil

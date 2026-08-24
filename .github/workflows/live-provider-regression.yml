@@ -1,0 +1,76 @@
+name: Live provider regression
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Platform to test
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - wjx
+          - tencent
+          - credamo
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GO_VERSION: "1.26.7"
+
+concurrency:
+  group: live-provider-regression
+  cancel-in-progress: false
+
+jobs:
+  provider:
+    name: Live ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.provider != 'all' && format('["{0}"]', inputs.provider) || '["wjx","tencent","credamo"]') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Verify toolchain
+        run: |
+          case "$(go version)" in *"go1.26.7"*) ;; *) exit 1 ;; esac
+          test "$(go env GOOS)/$(go env GOARCH)" = "linux/amd64"
+      - name: Select authorized survey
+        shell: bash
+        run: |
+          case "${{ matrix.platform }}" in
+            wjx) provider='wjx'; url='https://v.wjx.cn/vm/ei3sVrE.aspx' ;;
+            tencent) provider='qq'; url='https://wj.qq.com/s2/26070328/fa89/' ;;
+            credamo) provider='credamo'; url='https://www.credamo.com/s/A73QR3ano' ;;
+            *) exit 1 ;;
+          esac
+          echo "SURVEYCORE_LIVE_PROVIDER=$provider" >> "$GITHUB_ENV"
+          echo "SURVEYCORE_LIVE_URL=$url" >> "$GITHUB_ENV"
+      - name: Submit one authorized response
+        env:
+          SURVEYCORE_LIVE: "1"
+        run: go test -count=1 -timeout=4m ./CI/live_tests -run '^TestLiveProviderSubmission$' -v
+
+  summary:
+    name: Live provider regression gate
+    if: always()
+    needs: provider
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all selected providers
+        env:
+          RESULT: ${{ needs.provider.result }}
+        run: test "$RESULT" = "success"
