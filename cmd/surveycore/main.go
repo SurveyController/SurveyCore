@@ -12,7 +12,7 @@ import (
 	"github.com/SurveyController/SurveyCore/pkg/restapi"
 )
 
-var version = "0.1.0"
+var version = "dev"
 
 func main() {
 	cfg, err := appconfig.Load("")
@@ -20,7 +20,7 @@ func main() {
 		panic(err)
 	}
 
-	server, err := restapi.New(restapi.Config{DBPath: cfg.Storage.DBPath, ListenAddr: cfg.ListenAddr(), AIKey: cfg.AI.APIKey, AIBaseURL: cfg.AI.BaseURL, AIModel: cfg.AI.Model})
+	server, err := restapi.New(restapi.Config{DBPath: cfg.Storage.DBPath, Version: version, AIKey: cfg.AI.APIKey, AIBaseURL: cfg.AI.BaseURL, AIModel: cfg.AI.Model})
 	if err != nil {
 		panic(err)
 	}

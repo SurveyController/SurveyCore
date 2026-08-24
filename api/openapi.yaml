@@ -1,21 +1,24 @@
 openapi: 3.1.0
 info:
   title: SurveyCore REST API
-  version: 1.0.0
+  version: experimental
   description: Authorized survey parsing and submission service.
 servers:
   - url: http://127.0.0.1:19178
 paths:
   /api/v1/health:
     get:
+      operationId: getHealth
       responses:
-        '200': { description: Service is healthy }
+        '200': { description: Service is healthy, content: { application/json: { schema: { $ref: '#/components/schemas/HealthResponse' } } } }
   /api/v1/version:
     get:
+      operationId: getVersion
       responses:
-        '200': { description: Service version }
+        '200': { description: Build version supplied by the service process, content: { application/json: { schema: { $ref: '#/components/schemas/VersionResponse' } } } }
   /api/v1/surveys/parse:
     post:
+      operationId: parseSurvey
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/URLRequest' } } } }
       responses:
         '200': { description: Parsed survey, content: { application/json: { schema: { $ref: '#/components/schemas/SurveyDefinition' } } } }
@@ -23,85 +26,506 @@ paths:
         '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/configs:
     post:
+      operationId: createDefaultConfig
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/URLRequest' } } } }
       responses:
         '200': { description: Default run configuration, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/tasks:
     get:
-      responses: { '200': { description: Task list } }
+      operationId: listTasks
+      responses:
+        '200': { description: Tasks ordered by creation time, content: { application/json: { schema: { $ref: '#/components/schemas/TaskList' } } } }
     post:
+      operationId: createTask
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
       responses:
         '202': { description: Task accepted, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
         '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/tasks/{id}:
     parameters: [{ $ref: '#/components/parameters/TaskID' }]
-    get: { responses: { '200': { description: Task state }, '404': { $ref: '#/components/responses/NotFound' } } }
+    get:
+      operationId: getTask
+      responses:
+        '200': { description: Task state, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/tasks/{id}/stop:
     parameters: [{ $ref: '#/components/parameters/TaskID' }]
-    post: { responses: { '200': { description: Current task state }, '404': { $ref: '#/components/responses/NotFound' } } }
+    post:
+      operationId: stopTask
+      responses:
+        '200': { description: Current task state, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/tasks/{id}/logs:
     parameters: [{ $ref: '#/components/parameters/TaskID' }]
-    get: { parameters: [{ $ref: '#/components/parameters/After' }, { $ref: '#/components/parameters/Limit' }], responses: { '200': { description: Cursor-paginated logs } } }
+    get:
+      operationId: listTaskLogs
+      parameters: [{ $ref: '#/components/parameters/After' }, { $ref: '#/components/parameters/Limit' }]
+      responses:
+        '200': { description: Cursor-paginated task logs, content: { application/json: { schema: { $ref: '#/components/schemas/TaskLogPage' } } } }
+        '400': { $ref: '#/components/responses/InvalidQuery' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/qrcode/decode:
     post:
-      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [file], properties: { file: { type: string, format: binary } } } } } }
-      responses: { '200': { description: Survey URL }, '422': { $ref: '#/components/responses/ValidationError' } }
+      operationId: decodeQRCode
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties: { file: { type: string, format: binary } }
+      responses:
+        '200': { description: Survey URL found in the QR code, content: { application/json: { schema: { $ref: '#/components/schemas/URLResponse' } } } }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/proxy/session:
-    post: { responses: { '200': { description: Official proxy session } } }
+    post:
+      operationId: activateProxySession
+      responses:
+        '200': { description: Official proxy session, content: { application/json: { schema: { $ref: '#/components/schemas/RandomIPSession' } } } }
+        '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/proxy/usage:
-    get: { responses: { '200': { description: Official proxy usage } } }
+    get:
+      operationId: getProxyUsage
+      responses:
+        '200': { description: Official proxy usage, content: { application/json: { schema: { $ref: '#/components/schemas/UsageSnapshot' } } } }
+        '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/proxy/extract:
     post:
+      operationId: extractProxies
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProxyExtractRequest' } } } }
-      responses: { '200': { description: Proxy leases } }
+      responses:
+        '200': { description: Proxy leases and quota state, content: { application/json: { schema: { $ref: '#/components/schemas/OfficialExtractResult' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/proxy/bonus:
     post:
+      operationId: claimProxyBonus
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CodeRequest' } } } }
-      responses: { '200': { description: Bonus result } }
+      responses:
+        '200': { description: Bonus claim result, content: { application/json: { schema: { $ref: '#/components/schemas/BonusResult' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
   /api/v1/proxy/redeem:
     post:
+      operationId: redeemProxyCard
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CodeRequest' } } } }
-      responses: { '200': { description: Redeem result } }
+      responses:
+        '200': { description: Card redemption result, content: { application/json: { schema: { $ref: '#/components/schemas/RedeemResult' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
 components:
   parameters:
-    TaskID: { name: id, in: path, required: true, schema: { type: string } }
+    TaskID: { name: id, in: path, required: true, schema: { type: string, minLength: 1 } }
     After: { name: after, in: query, schema: { type: integer, minimum: 0, default: 0 } }
     Limit: { name: limit, in: query, description: Zero uses the default; values above 1000 are capped, schema: { type: integer, minimum: 0, default: 200 } }
   responses:
-    InvalidJSON: { description: Invalid JSON, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    InvalidJSON: { description: Invalid JSON, an unknown field, or more than one JSON value, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    InvalidRequest: { description: Invalid multipart request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    InvalidQuery: { description: Invalid query parameter, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     ValidationError: { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-    UpstreamError: { description: Upstream error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    UpstreamError: { description: Upstream provider error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     NotFound: { description: Resource not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    InternalError: { description: Internal service error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   schemas:
-    URLRequest: { type: object, required: [url], properties: { url: { type: string, format: uri } } }
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties: { status: { type: string, const: ok } }
+    VersionResponse:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties: { version: { type: string, example: dev } }
+    URLRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties: { url: { type: string, format: uri } }
+    URLResponse:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties: { url: { type: string, format: uri } }
+    Provider: { type: string, enum: [wjx, qq, credamo] }
     RunRequest:
       type: object
+      additionalProperties: false
       required: [source, definition, execution, answers, reverseFill, psychometrics]
       properties:
-        source:
-          type: object
-          required: [url]
-          properties:
-            url: { type: string, format: uri }
-            provider: { type: string, enum: [wjx, qq, credamo] }
+        source: { $ref: '#/components/schemas/SurveySource' }
         definition: { $ref: '#/components/schemas/SurveyDefinition' }
-        execution:
-          type: object
-          properties:
-            target: { type: integer, minimum: 1 }
-            threads: { type: integer, minimum: 1 }
-            submitInterval: { $ref: '#/components/schemas/IntegerPair' }
-            answerDuration: { $ref: '#/components/schemas/IntegerPair' }
-            answerDatetimeWindow: { type: array, minItems: 2, maxItems: 2, items: { type: string } }
-            failStop: { type: boolean }
-            pauseOnAliyunCaptcha: { type: boolean }
-        answers: { type: object }
-        reverseFill: { type: object }
-        psychometrics: { type: object }
+        execution: { $ref: '#/components/schemas/ExecutionPlan' }
+        answers: { $ref: '#/components/schemas/AnswerPlan' }
+        reverseFill: { $ref: '#/components/schemas/ReverseFillPlan' }
+        psychometrics: { $ref: '#/components/schemas/PsychometricPolicy' }
+    SurveySource:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        provider: { $ref: '#/components/schemas/Provider' }
+    ExecutionPlan:
+      type: object
+      additionalProperties: false
+      required: [target, threads, submitInterval, answerDuration, failStop, pauseOnAliyunCaptcha]
+      properties:
+        target: { type: integer, minimum: 1 }
+        threads: { type: integer, minimum: 1 }
+        submitInterval: { $ref: '#/components/schemas/IntegerPair' }
+        answerDuration: { $ref: '#/components/schemas/IntegerPair' }
+        answerDatetimeWindow: { $ref: '#/components/schemas/StringPair' }
+        failStop: { type: boolean }
+        pauseOnAliyunCaptcha: { type: boolean }
     IntegerPair: { type: array, minItems: 2, maxItems: 2, items: { type: integer } }
-    SurveyDefinition: { type: object, required: [provider, title, questions], properties: { provider: { type: string }, title: { type: string }, questions: { type: array, items: { type: object } } } }
-    Task: { type: object, required: [id, status, config, created_at], properties: { id: { type: string }, status: { type: string, enum: [pending, running, succeeded, failed, stopped, interrupted] }, config: { $ref: '#/components/schemas/RunRequest' }, created_at: { type: string, format: date-time }, started_at: { type: string, format: date-time }, finished_at: { type: string, format: date-time }, result: { type: object }, error: { type: string }, stop_message: { type: string } } }
-    ProxyExtractRequest: { type: object, properties: { minute: { type: integer }, pool: { type: string }, area: { type: string }, num: { type: integer }, upstream: { type: string } } }
-    CodeRequest: { type: object, required: [code], properties: { code: { type: string } } }
-    Error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string }, detail: { type: string } } }
+    StringPair: { type: array, minItems: 2, maxItems: 2, items: { type: string } }
+    SurveyDefinition:
+      type: object
+      additionalProperties: false
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+        title: { type: string }
+        questions: { type: array, items: { $ref: '#/components/schemas/QuestionMeta' } }
+    QuestionMeta:
+      type: object
+      additionalProperties: false
+      properties:
+        num: { type: integer }
+        title: { type: string }
+        display_num: { type: [integer, 'null'] }
+        description: { type: string }
+        type_code: { type: string }
+        options: { type: integer, minimum: 0 }
+        rows: { type: integer, minimum: 0 }
+        row_texts: { type: array, items: { type: string } }
+        page: { type: integer }
+        option_texts: { type: array, items: { type: string } }
+        provider: { type: string }
+        provider_question_id: { type: string }
+        provider_page_id: { type: string }
+        provider_type: { type: string }
+        required: { type: boolean }
+        is_description: { type: boolean }
+        is_location: { type: boolean }
+        is_rating: { type: boolean }
+        rating_max: { type: integer }
+        text_inputs: { type: integer }
+        text_input_labels: { type: array, items: { type: string } }
+        is_text_like: { type: boolean }
+        is_multi_text: { type: boolean }
+        is_slider_matrix: { type: boolean }
+        logic_parse_status: { type: string, enum: [complete, none, unknown] }
+        has_jump: { type: boolean }
+        jump_rules: { type: array, items: { $ref: '#/components/schemas/JumpRule' } }
+        has_display_condition: { type: boolean }
+        display_conditions: { type: array, items: { $ref: '#/components/schemas/DisplayCondition' } }
+        has_dependent_display_logic: { type: boolean }
+        controls_display_targets: { type: array, items: { $ref: '#/components/schemas/DisplayControl' } }
+        slider_min: { type: string }
+        slider_max: { type: string }
+        slider_step: { type: string }
+        question_media: { type: array, items: { $ref: '#/components/schemas/QuestionMedia' } }
+        multi_min_limit: { type: [integer, 'null'] }
+        multi_max_limit: { type: [integer, 'null'] }
+        forced_option_index: { type: [integer, 'null'] }
+        forced_option_text: { type: string }
+        forced_texts: { type: array, items: { type: string } }
+        fillable_options: { type: array, items: { type: integer } }
+        attached_option_selects: { type: array, items: { $ref: '#/components/schemas/AttachedOptionSelect' } }
+        has_attached_option_select: { type: boolean }
+        unsupported: { type: boolean }
+        unsupported_reason: { type: string }
+    JumpRule:
+      type: object
+      additionalProperties: false
+      required: [option_index, jumpto]
+      properties:
+        option_index: { type: integer }
+        jumpto: { type: integer }
+        option_text: { type: [string, 'null'] }
+        terminates_survey: { type: boolean }
+    DisplayCondition:
+      type: object
+      additionalProperties: false
+      required: [condition_question_num, condition_mode, condition_option_indices]
+      properties:
+        condition_question_num: { type: integer }
+        condition_mode: { type: string }
+        condition_option_indices: { type: array, items: { type: integer } }
+        condition_row_index: { type: [integer, 'null'] }
+    DisplayControl:
+      type: object
+      additionalProperties: false
+      required: [target_question_num, condition_mode, condition_option_indices]
+      properties:
+        target_question_num: { type: integer }
+        condition_mode: { type: string }
+        condition_option_indices: { type: array, items: { type: integer } }
+        condition_row_index: { type: [integer, 'null'] }
+    QuestionMedia:
+      type: object
+      additionalProperties: false
+      required: [kind, scope, source_url, label]
+      properties:
+        kind: { type: string }
+        scope: { type: string }
+        index: { type: [integer, 'null'] }
+        source_url: { type: string }
+        label: { type: string }
+    AttachedOptionSelect:
+      type: object
+      additionalProperties: false
+      required: [option_index, option_text, select_texts]
+      properties:
+        option_index: { type: integer }
+        option_text: { type: string }
+        select_texts: { type: array, items: { type: string } }
+    AnswerPlan:
+      type: object
+      additionalProperties: false
+      properties:
+        rules: { type: array, items: { $ref: '#/components/schemas/ConsistencyRule' } }
+        dimensions: { type: array, items: { type: string } }
+        questions: { type: array, items: { $ref: '#/components/schemas/QuestionStrategy' } }
+    WeightTable:
+      type: object
+      additionalProperties: false
+      properties:
+        options: { type: array, items: { type: number, minimum: 0 } }
+        rows: { type: array, items: { type: array, items: { type: number, minimum: 0 } } }
+    QuestionStrategy:
+      type: object
+      additionalProperties: false
+      required: [question_type, probabilities]
+      properties:
+        question_type: { type: string, enum: [single, multiple, dropdown, scale, score, matrix, order, slider, text, multi_text] }
+        probabilities: { $ref: '#/components/schemas/WeightTable' }
+        texts: { type: array, items: { type: string } }
+        rows: { type: integer, minimum: 0 }
+        option_count: { type: integer, minimum: 0 }
+        distribution_mode: { type: string }
+        custom_weights: { $ref: '#/components/schemas/WeightTable' }
+        question_num: { type: [integer, 'null'] }
+        question_title: { type: [string, 'null'] }
+        survey_provider: { type: string }
+        provider_question_id: { type: [string, 'null'] }
+        provider_page_id: { type: [string, 'null'] }
+        ai_enabled: { type: boolean }
+        option_fill_texts: { type: array, items: { type: [string, 'null'] } }
+        fillable_option_indices: { type: array, items: { type: integer } }
+        attached_option_selects: { type: array, items: { $ref: '#/components/schemas/AttachedOptionSelect' } }
+        is_location: { type: boolean }
+        location_parts: { type: array, items: { type: string } }
+        multi_text_blank_modes: { type: array, items: { type: string } }
+        multi_text_blank_ai_flags: { type: array, items: { type: boolean } }
+        multi_text_blank_int_ranges: { type: array, items: { type: array, items: { type: integer } } }
+        text_random_mode: { type: string }
+        text_random_int_range: { type: array, items: { type: integer } }
+        dimension: { type: string }
+        psycho_bias: { type: string }
+    ConsistencyRule:
+      type: object
+      additionalProperties: false
+      required: [condition_question_num, condition_mode, condition_option_indices, target_question_num, action_mode, target_option_indices]
+      properties:
+        id: { type: string }
+        condition_question_num: { type: integer }
+        condition_mode: { type: string }
+        condition_option_indices: { type: array, items: { type: integer } }
+        condition_row_index: { type: [integer, 'null'] }
+        target_question_num: { type: integer }
+        action_mode: { type: string }
+        target_option_indices: { type: array, items: { type: integer } }
+        target_row_index: { type: [integer, 'null'] }
+    ReverseFillPlan:
+      type: object
+      additionalProperties: false
+      required: [enabled, format, startRow, threads]
+      properties:
+        enabled: { type: boolean }
+        sourcePath: { type: string }
+        format: { type: string }
+        startRow: { type: integer, minimum: 1 }
+        threads: { type: integer, minimum: 1 }
+    PsychometricPolicy:
+      type: object
+      additionalProperties: false
+      required: [enabled, targetAlpha]
+      properties:
+        enabled: { type: boolean }
+        targetAlpha: { type: number, exclusiveMinimum: 0, maximum: 1 }
+    RunResult:
+      type: object
+      additionalProperties: false
+      required: [success, fail, stopped]
+      properties:
+        success: { type: integer, minimum: 0 }
+        fail: { type: integer, minimum: 0 }
+        stopped: { type: boolean }
+        thread_progress: { type: array, items: { $ref: '#/components/schemas/ThreadProgress' } }
+    ThreadProgress:
+      type: object
+      additionalProperties: false
+      required: [thread_name, thread_index, success_count, fail_count, step_current, step_total, status_text, running]
+      properties:
+        thread_name: { type: string }
+        thread_index: { type: integer }
+        success_count: { type: integer, minimum: 0 }
+        fail_count: { type: integer, minimum: 0 }
+        step_current: { type: integer, minimum: 0 }
+        step_total: { type: integer, minimum: 0 }
+        status_text: { type: string }
+        running: { type: boolean }
+        last_update: { type: string, format: date-time }
+    Event:
+      type: object
+      additionalProperties: false
+      required: [worker, message, success, fail, current, total, time]
+      properties:
+        worker: { type: string }
+        message: { type: string }
+        success: { type: boolean }
+        fail: { type: boolean }
+        current: { type: integer }
+        total: { type: integer }
+        time: { type: string, format: date-time }
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, status, config, created_at]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [pending, running, succeeded, failed, stopped, interrupted] }
+        config: { $ref: '#/components/schemas/RunRequest' }
+        result:
+          oneOf:
+            - { $ref: '#/components/schemas/RunResult' }
+            - { type: 'null' }
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        error: { type: string }
+        stop_message: { type: string }
+    TaskList:
+      type: object
+      additionalProperties: false
+      required: [tasks]
+      properties: { tasks: { type: array, items: { $ref: '#/components/schemas/Task' } } }
+    TaskLog:
+      type: object
+      additionalProperties: false
+      required: [id, timestamp, level, message]
+      properties:
+        id: { type: integer }
+        timestamp: { type: string, format: date-time }
+        level: { type: string }
+        message: { type: string }
+        fields: { type: object, additionalProperties: true }
+        event:
+          oneOf:
+            - { $ref: '#/components/schemas/Event' }
+            - { type: 'null' }
+    TaskLogPage:
+      type: object
+      additionalProperties: false
+      required: [logs, next_cursor, has_more]
+      properties:
+        logs: { type: array, items: { $ref: '#/components/schemas/TaskLog' } }
+        next_cursor: { type: integer }
+        has_more: { type: boolean }
+    ProxyExtractRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        minute: { type: integer }
+        pool: { type: string }
+        area: { type: string }
+        num: { type: integer }
+        upstream: { type: string }
+    CodeRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties: { code: { type: string } }
+    QuotaSnapshot:
+      type: object
+      additionalProperties: false
+      required: [RemainingQuota, TotalQuota, UsedQuota, QuotaKnown]
+      properties:
+        RemainingQuota: { type: number }
+        TotalQuota: { type: number }
+        UsedQuota: { type: number }
+        QuotaKnown: { type: boolean }
+    RandomIPSession:
+      type: object
+      additionalProperties: false
+      required: [DeviceID, UserID, RemainingQuota, TotalQuota, UsedQuota, QuotaKnown]
+      properties:
+        DeviceID: { type: string }
+        UserID: { type: integer }
+        RemainingQuota: { type: number }
+        TotalQuota: { type: number }
+        UsedQuota: { type: number }
+        QuotaKnown: { type: boolean }
+    OfficialProxyItem:
+      type: object
+      additionalProperties: false
+      required: [Host, Port, Account, Password, ExpireAt]
+      properties:
+        Host: { type: string }
+        Port: { type: integer }
+        Account: { type: string }
+        Password: { type: string }
+        ExpireAt: { type: string }
+    OfficialExtractResult:
+      type: object
+      additionalProperties: false
+      required: [Items, RequestedCount, ReturnedCount, Provider, QuotaCost, QuotaCostTotal, Quota]
+      properties:
+        Items: { type: array, items: { $ref: '#/components/schemas/OfficialProxyItem' } }
+        RequestedCount: { type: integer }
+        ReturnedCount: { type: integer }
+        Provider: { type: string }
+        QuotaCost: { type: number }
+        QuotaCostTotal: { type: number }
+        Quota: { $ref: '#/components/schemas/QuotaSnapshot' }
+    BonusResult:
+      type: object
+      additionalProperties: false
+      required: [Claimed, BonusQuota, Detail, Quota]
+      properties:
+        Claimed: { type: boolean }
+        BonusQuota: { type: number }
+        Detail: { type: string }
+        Quota: { $ref: '#/components/schemas/QuotaSnapshot' }
+    RedeemResult:
+      type: object
+      additionalProperties: false
+      required: [Redeemed, CardQuota, Detail, Quota]
+      properties:
+        Redeemed: { type: boolean }
+        CardQuota: { type: number }
+        Detail: { type: string }
+        Quota: { $ref: '#/components/schemas/QuotaSnapshot' }
+    UsageSnapshot:
+      type: object
+      additionalProperties: false
+      required: [RemainingIP]
+      properties: { RemainingIP: { type: integer } }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, detail]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        detail: { type: string }

@@ -2,11 +2,39 @@ package restapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestV1VersionUsesConfiguredBuildVersion(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Config{DBPath: dir + "\\test.db", Version: "v0.2.0-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	body, err := io.ReadAll(rec.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["version"] != "v0.2.0-test" {
+		t.Fatalf("version=%q", payload["version"])
+	}
+}
 
 func TestV1HealthAndNotFound(t *testing.T) {
 	dir := t.TempDir()

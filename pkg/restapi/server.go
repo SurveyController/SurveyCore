@@ -12,28 +12,33 @@ import (
 
 	surveyio "github.com/SurveyController/SurveyCore/internal/io"
 	"github.com/SurveyController/SurveyCore/internal/service"
-	"github.com/SurveyController/SurveyCore/pkg/proxycore"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/proxy"
 )
 
 type Config struct {
-	DBPath     string
-	ListenAddr string
-	Version    string
-	AIKey      string
-	AIBaseURL  string
-	AIModel    string
+	DBPath    string
+	Version   string
+	AIKey     string
+	AIBaseURL string
+	AIModel   string
 }
 type Server struct {
-	manager  *service.Manager
-	store    *service.Store
-	official *proxycore.OfficialClient
-	mux      http.Handler
+	manager      *service.Manager
+	store        *service.Store
+	official     *proxy.OfficialClient
+	buildVersion string
+	mux          http.Handler
 }
 
 func New(cfg Config) (*Server, error) {
 	if strings.TrimSpace(cfg.DBPath) == "" {
 		cfg.DBPath = "data/surveycore-v1.db"
+	}
+	version := strings.TrimSpace(cfg.Version)
+	if version == "" {
+		version = "dev"
 	}
 	store := service.NewStore(cfg.DBPath)
 	if err := store.Init(); err != nil {
@@ -44,9 +49,9 @@ func New(cfg Config) (*Server, error) {
 	if err := m.Load(); err != nil {
 		return nil, err
 	}
-	proxySession := proxycore.NewOfficialSessionManager(proxycore.OfficialSessionManagerOptions{Store: store})
-	official := proxycore.NewOfficialClient(proxycore.OfficialClientOptions{SessionManager: proxySession})
-	s := &Server{manager: m, store: store, official: official}
+	proxySession := proxy.NewOfficialSessionManager(proxy.OfficialSessionManagerOptions{Store: store})
+	official := proxy.NewOfficialClient(proxy.OfficialClientOptions{SessionManager: proxySession})
+	s := &Server{manager: m, store: store, official: official, buildVersion: version}
 	s.mux = s.routes()
 	return s, nil
 }
@@ -75,7 +80,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	write(w, 200, map[string]any{"status": "ok"})
 }
 func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
-	write(w, 200, map[string]any{"version": "1.0.0"})
+	write(w, 200, map[string]any{"version": s.buildVersion})
 }
 
 type urlRequest struct {
@@ -121,7 +126,7 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, v)
 }
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
-	var cfg surveycore.RunRequest
+	var cfg model.RunRequest
 	if err := decode(r, &cfg); err != nil {
 		fail(w, 400, "invalid_json", err)
 		return
@@ -222,7 +227,7 @@ func (s *Server) proxyUsage(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, v)
 }
 func (s *Server) proxyExtract(w http.ResponseWriter, r *http.Request) {
-	var req proxycore.OfficialExtractRequest
+	var req proxy.OfficialExtractRequest
 	if err := decode(r, &req); err != nil {
 		fail(w, 400, "invalid_json", err)
 		return

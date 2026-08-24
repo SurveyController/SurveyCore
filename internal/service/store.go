@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/SurveyController/SurveyCore/pkg/proxycore"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/proxy"
 	_ "modernc.org/sqlite"
 )
 
@@ -286,23 +286,23 @@ func (s *Store) database() *sql.DB {
 	return s.db
 }
 
-func (s *Store) LoadSession(_ context.Context) (proxycore.RandomIPSession, bool, error) {
+func (s *Store) LoadSession(_ context.Context) (proxy.RandomIPSession, bool, error) {
 	var raw string
 	err := s.database().QueryRow(`SELECT session_json FROM v1_proxy_session WHERE id = 1`).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return proxycore.RandomIPSession{}, false, nil
+		return proxy.RandomIPSession{}, false, nil
 	}
 	if err != nil {
-		return proxycore.RandomIPSession{}, false, err
+		return proxy.RandomIPSession{}, false, err
 	}
-	var session proxycore.RandomIPSession
+	var session proxy.RandomIPSession
 	if err := json.Unmarshal([]byte(raw), &session); err != nil {
-		return proxycore.RandomIPSession{}, false, fmt.Errorf("解析代理会话失败: %w", err)
+		return proxy.RandomIPSession{}, false, fmt.Errorf("解析代理会话失败: %w", err)
 	}
 	return session, true, nil
 }
 
-func (s *Store) SaveSession(_ context.Context, session proxycore.RandomIPSession) error {
+func (s *Store) SaveSession(_ context.Context, session proxy.RandomIPSession) error {
 	data, err := json.Marshal(session)
 	if err != nil {
 		return err
@@ -319,7 +319,7 @@ func (s *Store) SaveSession(_ context.Context, session proxycore.RandomIPSession
 
 func (s *Store) ClearSession(ctx context.Context, keepDeviceID string) error {
 	if keepDeviceID != "" {
-		return s.SaveSession(ctx, proxycore.RandomIPSession{DeviceID: keepDeviceID})
+		return s.SaveSession(ctx, proxy.RandomIPSession{DeviceID: keepDeviceID})
 	}
 	_, err := s.database().Exec(`DELETE FROM v1_proxy_session WHERE id = 1`)
 	return err

@@ -28,6 +28,16 @@ SurveyCore 是 SurveyController 使用的问卷解析、配置、提交、代理
 
 如果还没有安装 Go，可以从 [Go 官方网站](https://go.dev/dl/) 下载并安装适合您操作系统的版本。
 
+### Go SDK
+
+当前只发布提交对应的 pseudo-version，不提供稳定版标签，也暂不承诺 Go 1 兼容。
+
+```bash
+go get github.com/SurveyController/SurveyCore@<commit>
+```
+
+高层入口位于 `pkg/surveycore`，公共结构位于 `pkg/surveycore/model`。`runtime`、`proxy`、`config` 是实验扩展包，公开契约可能随提交变化。
+
 ### 部署与运行
 
 ```bash
@@ -49,13 +59,13 @@ flowchart TD
     Client[HTTP 客户端] --> API[pkg/restapi<br/>V1 HTTP 路由与响应]
     API --> Tasks[internal/service<br/>任务生命周期]
     Tasks --> Store[(SQLite<br/>任务与日志)]
-    Tasks --> Core[pkg/surveycore<br/>配置、解析与提交]
+    Tasks --> Core[pkg/surveycore<br/>高层 Go SDK]
     Core --> Engine[并发提交引擎]
     Core --> Providers[平台适配器]
     Providers --> WJX[问卷星]
     Providers --> Tencent[腾讯问卷]
     Providers --> Credamo[Credamo 见数]
-    API --> Proxy[pkg/proxycore<br/>代理会话与租约]
+    API --> Proxy[pkg/surveycore/proxy<br/>代理会话与租约]
 ```
 
 ## 服务地址

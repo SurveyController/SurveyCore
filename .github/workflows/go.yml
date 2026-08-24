@@ -31,6 +31,11 @@ jobs:
           if ((go env GOOS) -ne 'windows' -or (go env GOARCH) -ne 'amd64') { throw "Expected windows/amd64." }
       - name: Test
         run: go test ./...
+      - name: Test external Go SDK consumer
+        working-directory: tests/consumer
+        env:
+          GOWORK: off
+        run: go test ./...
       - name: Build
         run: go build ./...
 

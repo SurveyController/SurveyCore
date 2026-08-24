@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore"
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 type Manager struct {
@@ -49,7 +50,7 @@ func (m *Manager) Load() error {
 	return nil
 }
 
-func (m *Manager) Create(ctx context.Context, cfg *surveycore.RunRequest) (*Task, error) {
+func (m *Manager) Create(ctx context.Context, cfg *model.RunRequest) (*Task, error) {
 	if cfg == nil {
 		return nil, errors.New("配置不能为空")
 	}
@@ -80,7 +81,7 @@ func (m *Manager) run(ctx context.Context, id string) {
 	}
 	started := time.Now()
 	m.update(id, func(t *Task) { t.Status = TaskRunning; t.StartedAt = &started })
-	result, err := m.client.RunWithEvents(ctx, task.Config, func(event surveycore.Event) {
+	result, err := m.client.RunWithEvents(ctx, task.Config, func(event model.Event) {
 		m.appendLog(id, TaskLog{Timestamp: time.Now(), Level: "INFO", Message: event.Message, Event: &event})
 	})
 	finished := time.Now()
@@ -152,10 +153,10 @@ func (m *Manager) Logs(id string, after int64, limit int) (*TaskLogPage, error) 
 	}
 	return m.store.LoadLogs(id, after, limit)
 }
-func (m *Manager) Parse(ctx context.Context, url string) (*surveycore.SurveyDefinition, error) {
+func (m *Manager) Parse(ctx context.Context, url string) (*model.SurveyDefinition, error) {
 	return m.client.Parse(ctx, url)
 }
-func (m *Manager) DefaultConfig(ctx context.Context, url string) (*surveycore.RunRequest, error) {
+func (m *Manager) DefaultConfig(ctx context.Context, url string) (*model.RunRequest, error) {
 	return m.client.DefaultConfig(ctx, url)
 }
 func (m *Manager) StopAll() {
@@ -191,7 +192,7 @@ func taskID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
-func cloneConfig(c *surveycore.RunRequest) *surveycore.RunRequest {
+func cloneConfig(c *model.RunRequest) *model.RunRequest {
 	if c == nil {
 		return nil
 	}
@@ -199,7 +200,7 @@ func cloneConfig(c *surveycore.RunRequest) *surveycore.RunRequest {
 	if e != nil {
 		return c
 	}
-	var out surveycore.RunRequest
+	var out model.RunRequest
 	if json.Unmarshal(b, &out) != nil {
 		return c
 	}
@@ -213,7 +214,7 @@ func cloneTask(t *Task) *Task {
 	out.Config = cloneConfig(t.Config)
 	if t.Result != nil {
 		b, _ := json.Marshal(t.Result)
-		var r surveycore.RunResult
+		var r model.RunResult
 		if json.Unmarshal(b, &r) == nil {
 			out.Result = &r
 		}
