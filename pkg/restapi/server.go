@@ -65,6 +65,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/version", s.version)
 	mux.HandleFunc("POST /api/v1/surveys/parse", s.parse)
 	mux.HandleFunc("POST /api/v1/configs", s.config)
+	mux.HandleFunc("POST /api/v1/submissions", s.submit)
 	mux.HandleFunc("POST /api/v1/tasks", s.create)
 	mux.HandleFunc("GET /api/v1/tasks", s.list)
 	mux.HandleFunc("GET /api/v1/tasks/{id}", s.get)
@@ -144,6 +145,28 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 202, t)
+}
+
+func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Config json.RawMessage         `json:"config"`
+		Survey *model.SurveyDefinition `json:"survey,omitempty"`
+	}
+	if err := decode(r, &request); err != nil {
+		fail(w, 400, "invalid_json", err)
+		return
+	}
+	config, err := decodeTaskConfig(request.Config)
+	if err != nil {
+		fail(w, 400, "invalid_json", err)
+		return
+	}
+	result, err := s.manager.Submit(r.Context(), &surveycore.SubmissionRequest{Config: &config, Survey: request.Survey})
+	if result == nil {
+		fail(w, 422, "validation_error", err)
+		return
+	}
+	write(w, 200, result)
 }
 
 func decodeTaskConfig(body []byte) (model.RunRequest, error) {

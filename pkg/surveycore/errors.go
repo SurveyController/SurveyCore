@@ -25,3 +25,8 @@ const (
 func ClassifyRunError(err error) ErrorKind {
 	return ErrorKind(surveyRuntime.ClassifyRunError(err))
 }
+
+// ClassifySubmissionError returns the same stable failure categories used by Run.
+func ClassifySubmissionError(err error) ErrorKind {
+	return ClassifyRunError(err)
+}

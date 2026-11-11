@@ -110,6 +110,7 @@ api_key = ""
 | `GET` | `/api/v1/tasks/{id}/logs` | 分页读取任务日志。 |
 | `POST` | `/api/v1/surveys/parse` | 解析问卷，不提交答案。 |
 | `POST` | `/api/v1/configs` | 生成 V1 默认运行配置。 |
+| `POST` | `/api/v1/submissions` | 同步提交一次，返回本次结果和耗时。 |
 | `POST` | `/api/v1/tasks` | 创建异步提交任务。 |
 | `POST` | `/api/v1/tasks/{id}/stop` | 停止任务。 |
 | `POST` | `/api/v1/qrcode/decode` | 从二维码图片中解析问卷链接。 |
@@ -123,9 +124,11 @@ api_key = ""
 
 `POST /api/v1/tasks` 也接受 `surveycore-py` 的 `serialize_config()` 导出对象（`schema_version: 1`）。Go 本地配置可用 `config.Load()` 读取同一格式。支持范围和字段映射见 [数据结构](docs/sdk/schemas.md#python-配置导入)。
 
+单次提交可调用 Go SDK 的 `client.Submit(ctx, &surveycore.SubmissionRequest{Config: cfg})`，或把配置放在 `config` 字段中发送到 `POST /api/v1/submissions`。该接口同步返回 `attempt`、`provider`、`success`、`elapsed_seconds` 和 `error`，支持 Go 与 Python v1 配置。单次提交固定执行一次，平台失败时通过 `success: false` 和 `error` 返回结果。
+
 ## 错误响应
 
-API 错误统一返回稳定错误码、用户消息和调试详情：
+请求级错误统一返回稳定错误码、用户消息和调试详情：
 
 ```json
 {

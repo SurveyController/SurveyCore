@@ -1,0 +1,16 @@
+[
+  {
+    "attempt": 0,
+    "provider": "wjx",
+    "success": true,
+    "elapsed_seconds": 0.125,
+    "error": null
+  },
+  {
+    "attempt": 0,
+    "provider": "qq",
+    "success": false,
+    "elapsed_seconds": 0.25,
+    "error": "平台未确认提交成功"
+  }
+]

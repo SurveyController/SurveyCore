@@ -2,6 +2,7 @@ package consumer_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore"
@@ -45,6 +46,11 @@ func TestPublicPackagesCompileForExternalConsumer(t *testing.T) {
 	}
 	if imported.ExecutionPlan.Threads != 2 {
 		t.Fatalf("Python concurrency = %d", imported.ExecutionPlan.Threads)
+	}
+	var submission *surveycore.SubmissionResult
+	submission, err = client.Submit(context.Background(), &surveycore.SubmissionRequest{})
+	if submission != nil || !errors.Is(err, surveycore.ErrInvalidConfig) || surveycore.ClassifySubmissionError(err) != surveycore.ErrorKindConfig {
+		t.Fatalf("single submission contract: result=%#v error=%v", submission, err)
 	}
 
 	pool := proxy.NewPool(proxy.PoolOptions{})
