@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 // CloneSurveyDefinition returns a deep copy of a survey definition.
 func CloneSurveyDefinition(definition SurveyDefinition) SurveyDefinition {
 	cloned := definition
@@ -16,6 +18,7 @@ func CloneQuestions(questions []QuestionMeta) []QuestionMeta {
 	copy(cloned, questions)
 	for index := range cloned {
 		source := questions[index]
+		cloned[index].ProviderPageRaw = cloneJSONValue(source.ProviderPageRaw)
 		cloned[index].RowTexts = append([]string(nil), source.RowTexts...)
 		cloned[index].OptionTexts = append([]string(nil), source.OptionTexts...)
 		cloned[index].TextInputLabels = append([]string(nil), source.TextInputLabels...)
@@ -32,6 +35,42 @@ func CloneQuestions(questions []QuestionMeta) []QuestionMeta {
 		cloned[index].ForcedOptionIdx = cloneIntPointer(source.ForcedOptionIdx)
 	}
 	return cloned
+}
+
+// Provider metadata uses JSON scalars, objects, and arrays, including typed
+// string slices produced by parsers before the first JSON serialization.
+func cloneJSONValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		if value == nil {
+			return map[string]any(nil)
+		}
+		cloned := make(map[string]any, len(value))
+		for key, item := range value {
+			cloned[key] = cloneJSONValue(item)
+		}
+		return cloned
+	case []any:
+		if value == nil {
+			return []any(nil)
+		}
+		cloned := make([]any, len(value))
+		for index, item := range value {
+			cloned[index] = cloneJSONValue(item)
+		}
+		return cloned
+	case []string:
+		if value == nil {
+			return []string(nil)
+		}
+		cloned := make([]string, len(value))
+		copy(cloned, value)
+		return cloned
+	case json.RawMessage:
+		return append(json.RawMessage(nil), value...)
+	default:
+		return value
+	}
 }
 
 // CloneAnswerPlan returns a deep copy of an answer plan.

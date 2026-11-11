@@ -303,6 +303,7 @@ components:
       properties:
         provider: { $ref: '#/components/schemas/Provider' }
         title: { type: string }
+        url: { type: string, format: uri, description: Normalized parse URL; optional for manually supplied legacy snapshots }
         questions: { type: array, items: { $ref: '#/components/schemas/QuestionMeta' } }
     QuestionMeta:
       type: object
@@ -322,6 +323,7 @@ components:
         provider_question_id: { type: string }
         provider_page_id: { type: string }
         provider_type: { type: string }
+        provider_page_raw: { description: Original provider page value or multilevel dropdown metadata; null when absent }
         required: { type: boolean }
         is_description: { type: boolean }
         is_location: { type: boolean }
@@ -339,9 +341,9 @@ components:
         display_conditions: { type: array, items: { $ref: '#/components/schemas/DisplayCondition' } }
         has_dependent_display_logic: { type: boolean }
         controls_display_targets: { type: array, items: { $ref: '#/components/schemas/DisplayControl' } }
-        slider_min: { type: string }
-        slider_max: { type: string }
-        slider_step: { type: string }
+        slider_min: { type: [number, string, 'null'] }
+        slider_max: { type: [number, string, 'null'] }
+        slider_step: { type: [number, string, 'null'] }
         question_media: { type: array, items: { $ref: '#/components/schemas/QuestionMedia' } }
         multi_min_limit: { type: [integer, 'null'] }
         multi_max_limit: { type: [integer, 'null'] }
@@ -371,6 +373,7 @@ components:
         condition_mode: { type: string }
         condition_option_indices: { type: array, items: { type: integer } }
         condition_row_index: { type: [integer, 'null'] }
+        raw_relation: { type: string }
     DisplayControl:
       type: object
       additionalProperties: false

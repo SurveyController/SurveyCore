@@ -1,6 +1,9 @@
 package wjx
 
 import (
+	"fmt"
+	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -131,11 +134,14 @@ func sliderRange(div *nethtml.Node) model.SliderRange {
 	if input == nil {
 		return model.SliderRange{}
 	}
-	return model.SliderRange{
-		SliderMin:  firstNonEmpty(attr(input, "min"), "0"),
-		SliderMax:  firstNonEmpty(attr(input, "max"), "100"),
-		SliderStep: firstNonEmpty(attr(input, "step"), "1"),
+	number := func(attribute string) any {
+		value, err := strconv.ParseFloat(attr(input, attribute), 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil
+		}
+		return value
 	}
+	return model.SliderRange{SliderMin: number("min"), SliderMax: number("max"), SliderStep: number("step")}
 }
 
 func logicMetadata(div *nethtml.Node, questionNum int, optionTexts []string) (bool, []model.JumpRule, bool, []model.DisplayCondition, bool, []model.DisplayControl, string) {
@@ -151,11 +157,31 @@ func logicMetadata(div *nethtml.Node, questionNum int, optionTexts []string) (bo
 		jumpRules = append(jumpRules, model.JumpRule{OptionIndex: optionIndex, TargetQuestion: target, OptionText: optionTextAt(optionTexts, optionIndex)})
 	}
 	relation := strings.TrimSpace(attr(div, "relation"))
-	hasDisplay := relation != "" && relation != "-1"
 	displayConditions := make([]model.DisplayCondition, 0)
-	if hasDisplay {
-		displayConditions = append(displayConditions, model.DisplayCondition{QuestionNum: intValue(relation), Mode: "selected", OptionIndices: []int{}})
+	seenConditions := map[string]bool{}
+	for _, chunk := range strings.Split(relation, "|") {
+		chunk = strings.TrimSpace(chunk)
+		if !displayRelationRE.MatchString(chunk) {
+			continue
+		}
+		parts := strings.Split(chunk, ",")
+		source := intValue(strings.TrimSpace(parts[0]))
+		var indices []int
+		seenIndices := map[int]bool{}
+		for _, part := range parts[1:] {
+			index := intValue(strings.TrimSpace(part)) - 1
+			if index >= 0 && !seenIndices[index] {
+				indices = append(indices, index)
+				seenIndices[index] = true
+			}
+		}
+		key := strconv.Itoa(source) + ":" + fmt.Sprint(indices)
+		if source > 0 && len(indices) > 0 && !seenConditions[key] {
+			displayConditions = append(displayConditions, model.DisplayCondition{QuestionNum: source, Mode: "selected", OptionIndices: indices, RawRelation: chunk})
+			seenConditions[key] = true
+		}
 	}
+	hasDisplay := len(displayConditions) > 0
 	hasLogic := len(jumpRules) > 0 || hasDisplay
 	status := "none"
 	if hasLogic {
@@ -164,6 +190,8 @@ func logicMetadata(div *nethtml.Node, questionNum int, optionTexts []string) (bo
 	_ = questionNum
 	return len(jumpRules) > 0, jumpRules, hasDisplay, displayConditions, false, nil, status
 }
+
+var displayRelationRE = regexp.MustCompile(`^\d+\s*,\s*\d+(?:\s*,\s*\d+)*$`)
 
 func optionTextAt(values []string, index int) *string {
 	if index < 0 || index >= len(values) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/internal/defaults"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 	"github.com/xuri/excelize/v2"
 )
@@ -127,7 +128,7 @@ func parseQuestionAnswer(question model.QuestionMeta, columns []Column, row RawR
 }
 
 func inferQuestionType(question model.QuestionMeta) string {
-	if question.ProviderType != "" {
+	if question.ProviderType != "" && question.ProviderType != question.TypeCode && question.ProviderType != "multilevel_dropdown" {
 		switch question.ProviderType {
 		case "radio", "single":
 			return "single"
@@ -137,24 +138,12 @@ func inferQuestionType(question model.QuestionMeta) string {
 			return "matrix"
 		case "text", "textarea":
 			return "text"
-		}
-		return ""
-	}
-	switch question.TypeCode {
-	case "3":
-		return "single"
-	case "5":
-		return "scale"
-	case "6":
-		return "matrix"
-	case "7":
-		return "dropdown"
-	default:
-		if question.IsTextLike || question.TextInputs > 0 {
+		case "multi_text":
 			return "text"
 		}
 		return ""
 	}
+	return defaults.QuestionType(question)
 }
 
 func valuesByColumn(row []string) map[int]string {

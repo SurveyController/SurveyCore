@@ -77,7 +77,7 @@ func attachLogicMetadata(rawQuestions []map[string]any, questions []model.Questi
 				question.LogicStatus = model.LogicParseStatusUnknown
 			}
 		} else {
-			question.LogicStatus = model.LogicParseStatusNone
+			question.LogicStatus = model.LogicParseStatusUnknown
 		}
 		questions[idx] = question
 	}
@@ -98,7 +98,7 @@ func attachLogicMetadata(rawQuestions []map[string]any, questions []model.Questi
 		}
 		if raw["hidden"] != nil && raw["hidden"] != "" {
 			questions[idx].HasDisplayCondition = true
-			if questions[idx].LogicStatus == model.LogicParseStatusNone {
+			if questions[idx].LogicStatus != model.LogicParseStatusComplete {
 				questions[idx].LogicStatus = model.LogicParseStatusUnknown
 			}
 		}

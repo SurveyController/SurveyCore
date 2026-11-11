@@ -24,7 +24,7 @@ func questionOptions(div *nethtml.Node, questionNum int, typeCode string) ([]str
 		options, rows := matrixTexts(div, questionNum)
 		return options, rows, nil
 	case "8":
-		return []string{"50"}, nil, nil
+		return nil, nil, nil
 	default:
 		if looksLikeSliderMatrix(div) {
 			options, rows := sliderMatrixTexts(div)

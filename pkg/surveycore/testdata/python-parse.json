@@ -1,0 +1,769 @@
+{
+  "python_commit": "411ef6d0a6ab7b0c4f579745aa1a94ee806e9ac6",
+  "cases": [
+    {
+      "name": "wjx",
+      "url": "  WWW.WJX.CN/vm/parity.aspx  ",
+      "responses": {
+        "/vm/parity.aspx": "<html><head><title>解析对照 - 问卷星</title></head><body>\n<div id=\"divQuestion\"><fieldset>\n<div topic=\"1\" id=\"div1\" type=\"3\" req=\"1\"><div class=\"topichtml\">选择</div>\n<div class=\"ui-controlgroup\"><div><span class=\"label\">甲</span></div><div><span class=\"label\">乙</span></div></div></div>\n<div topic=\"2\" id=\"div2\" type=\"8\"><div class=\"topichtml\">滑块</div><input id=\"q2\" type=\"range\" min=\"0\" max=\"10\" step=\"0.5\"></div>\n<div topic=\"3\" id=\"div3\" type=\"1\" relation=\"1,2\"><div class=\"topichtml\">填空</div><input id=\"q3\" type=\"text\"></div>\n</fieldset></div></body></html>"
+      },
+      "expected": {
+        "provider": "wjx",
+        "title": "解析对照",
+        "url": "https://www.wjx.cn/vm/parity.aspx",
+        "questions": [
+          {
+            "num": 1,
+            "title": "选择",
+            "type_code": "3",
+            "provider_question_id": "1",
+            "provider_page_id": "1",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "甲",
+              "乙"
+            ],
+            "row_texts": [],
+            "page": 1,
+            "required": true,
+            "display_num": 1,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "3",
+            "provider_page_raw": null,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": true,
+            "controls_display_targets": [
+              {
+                "target_question_num": 3,
+                "condition_option_indices": [
+                  1
+                ],
+                "condition_mode": "selected"
+              }
+            ],
+            "logic_parse_status": "complete",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 2,
+            "title": "滑块",
+            "type_code": "8",
+            "provider_question_id": "2",
+            "provider_page_id": "1",
+            "options": 1,
+            "rows": 1,
+            "option_texts": [],
+            "row_texts": [],
+            "page": 1,
+            "required": false,
+            "display_num": 2,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": 0.0,
+            "slider_max": 10.0,
+            "slider_step": 0.5,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "8",
+            "provider_page_raw": null,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "none",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 3,
+            "title": "填空",
+            "type_code": "1",
+            "provider_question_id": "3",
+            "provider_page_id": "1",
+            "options": 0,
+            "rows": 1,
+            "option_texts": [],
+            "row_texts": [],
+            "page": 1,
+            "required": false,
+            "display_num": 3,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 1,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "1",
+            "provider_page_raw": null,
+            "is_text_like": true,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": true,
+            "display_conditions": [
+              {
+                "condition_question_num": 1,
+                "condition_mode": "selected",
+                "condition_option_indices": [
+                  1
+                ],
+                "raw_relation": "1,2"
+              }
+            ],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "complete",
+            "unsupported": false,
+            "unsupported_reason": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "qq",
+      "url": "https://wj.qq.com/s2/123/hash/",
+      "responses": {
+        "/api/v2/respondent/surveys/123/session": {
+          "code": "OK",
+          "data": {
+            "answer_session_id": "fixture-session"
+          }
+        },
+        "/api/v2/respondent/surveys/123/meta": {
+          "code": "OK",
+          "data": {
+            "title": "腾讯对照 - 腾讯问卷"
+          }
+        },
+        "/api/v2/respondent/surveys/123/questions": {
+          "code": "OK",
+          "data": {
+            "questions": [
+              {
+                "id": "intro",
+                "type": "description",
+                "title": "说明",
+                "description": "先阅读",
+                "page_id": "p1",
+                "page": 10
+              },
+              {
+                "id": "q1",
+                "type": "radio",
+                "title": "选择",
+                "required": true,
+                "page_id": "p1",
+                "page": 10,
+                "options": [
+                  {
+                    "id": "a",
+                    "text": "甲"
+                  },
+                  {
+                    "id": "b",
+                    "text": "乙"
+                  }
+                ]
+              },
+              {
+                "id": "q2",
+                "type": "checkbox",
+                "title": "多选",
+                "page_id": "p2",
+                "page": "next",
+                "min_length": 1,
+                "max_length": 2,
+                "options": [
+                  {
+                    "text": "A"
+                  },
+                  {
+                    "text": "B"
+                  }
+                ]
+              },
+              {
+                "id": "q3",
+                "type": "textarea",
+                "title": "文本",
+                "page_id": "p2",
+                "page": "next"
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "provider": "qq",
+        "title": "腾讯对照",
+        "url": "https://wj.qq.com/s2/123/hash/",
+        "questions": [
+          {
+            "num": 1,
+            "title": "说明",
+            "type_code": "0",
+            "provider_question_id": "intro",
+            "provider_page_id": "p1",
+            "options": 0,
+            "rows": 1,
+            "option_texts": [],
+            "row_texts": [],
+            "page": 1,
+            "required": false,
+            "display_num": null,
+            "description": "先阅读",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "description",
+            "provider_page_raw": 10,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": true,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "unknown",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 2,
+            "title": "说明 选择",
+            "type_code": "3",
+            "provider_question_id": "q1",
+            "provider_page_id": "p1",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "甲",
+              "乙"
+            ],
+            "row_texts": [],
+            "page": 1,
+            "required": true,
+            "display_num": 1,
+            "description": "先阅读",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "radio",
+            "provider_page_raw": 10,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "unknown",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 3,
+            "title": "多选",
+            "type_code": "4",
+            "provider_question_id": "q2",
+            "provider_page_id": "p2",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "A",
+              "B"
+            ],
+            "row_texts": [],
+            "page": 2,
+            "required": false,
+            "display_num": 2,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": 1,
+            "multi_max_limit": 2,
+            "provider_type": "checkbox",
+            "provider_page_raw": "next",
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "unknown",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 4,
+            "title": "文本",
+            "type_code": "1",
+            "provider_question_id": "q3",
+            "provider_page_id": "p2",
+            "options": 0,
+            "rows": 1,
+            "option_texts": [],
+            "row_texts": [],
+            "page": 2,
+            "required": false,
+            "display_num": 3,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 1,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "textarea",
+            "provider_page_raw": "next",
+            "is_text_like": true,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "unknown",
+            "unsupported": false,
+            "unsupported_reason": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "credamo",
+      "url": "WWW.CREDAMO.COM/s/demo_?from=fixture",
+      "responses": {
+        "/v1/survey/noauth/detail/get/demoano": {
+          "success": true,
+          "data": {
+            "surveyTitle": "见数对照",
+            "questions": [
+              {
+                "qstNo": "Q1",
+                "qstTitle": "选择",
+                "questionType": 2,
+                "selector": 1,
+                "questionId": "q1",
+                "required": true,
+                "choices": [
+                  {
+                    "display": "甲"
+                  },
+                  {
+                    "display": "乙"
+                  }
+                ]
+              },
+              {
+                "qstNo": "Q2",
+                "qstTitle": "矩阵",
+                "questionType": 4,
+                "questionId": "q2",
+                "page": 2,
+                "choices": [
+                  {
+                    "display": "行甲"
+                  },
+                  {
+                    "display": "行乙"
+                  }
+                ],
+                "answers": [
+                  {
+                    "display": "满意"
+                  },
+                  {
+                    "display": "不满意"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "provider": "credamo",
+        "title": "见数对照",
+        "url": "https://www.credamo.com/answer.html?from=fixture#/s/demo_",
+        "questions": [
+          {
+            "num": 1,
+            "title": "选择",
+            "type_code": "3",
+            "provider_question_id": "q1",
+            "provider_page_id": "1",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "甲",
+              "乙"
+            ],
+            "row_texts": [],
+            "page": 1,
+            "required": true,
+            "display_num": null,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "single",
+            "provider_page_raw": null,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "none",
+            "unsupported": false,
+            "unsupported_reason": ""
+          },
+          {
+            "num": 2,
+            "title": "矩阵",
+            "type_code": "6",
+            "provider_question_id": "q2",
+            "provider_page_id": "2",
+            "options": 2,
+            "rows": 2,
+            "option_texts": [
+              "满意",
+              "不满意"
+            ],
+            "row_texts": [
+              "行甲",
+              "行乙"
+            ],
+            "page": 2,
+            "required": false,
+            "display_num": null,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "matrix",
+            "provider_page_raw": null,
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "none",
+            "unsupported": false,
+            "unsupported_reason": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "wjx-multilevel",
+      "url": "https://v.wjx.cn/vm/levels.aspx",
+      "responses": {
+        "/vm/levels.aspx": "<html><head><title>层级 - 问卷星</title></head><body>\n<div id=\"divQuestion\"><fieldset>\n<div topic=\"1\" type=\"9\" gapfill=\"1\" relation=\"0\" style=\"display:none\"></div>\n<div topic=\"2\" id=\"div2\" type=\"1\" req=\"1\"><div class=\"topichtml\">请选择</div>\n<input type=\"text\" id=\"q2\" verify=\"多级下拉\" readonly=\"readonly\"></div>\n</fieldset></div><script>function DecodeId(input) { return input ^ 2130030173; }\nvar activityId = DecodeId(1797297031);</script></body></html>",
+        "/joinnew/setmenuselnew.aspx": "<input id=\"hfLevelData\" value=\"总部╰1╯┌|---总部╰1╯┌\n研发部\n支持部〒公司|部门\">"
+      },
+      "expected": {
+        "provider": "wjx",
+        "title": "层级",
+        "url": "https://v.wjx.cn/vm/levels.aspx",
+        "questions": [
+          {
+            "num": 2,
+            "title": "请选择",
+            "type_code": "7",
+            "provider_question_id": "2",
+            "provider_page_id": "1",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "总部‐研发部",
+              "总部‐支持部"
+            ],
+            "row_texts": [],
+            "page": 1,
+            "required": true,
+            "display_num": 1,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "multilevel_dropdown",
+            "provider_page_raw": {
+              "cid": "",
+              "submit_values": [
+                "总部┌‐研发部",
+                "总部┌‐支持部"
+              ],
+              "level_labels": [
+                "公司",
+                "部门"
+              ]
+            },
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "none",
+            "unsupported": false,
+            "unsupported_reason": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "wjx-multilevel-cid",
+      "url": "https://v.wjx.cn/vm/levels.aspx",
+      "responses": {
+        "/vm/levels.aspx": "<html><head><title>层级 - 问卷星</title></head><body>\n<div id=\"divQuestion\"><fieldset>\n<div topic=\"1\" type=\"9\" gapfill=\"1\" relation=\"0\" style=\"display:none\"></div>\n<div topic=\"2\" id=\"div2\" type=\"1\" req=\"1\"><div class=\"topichtml\">请选择</div>\n<input type=\"text\" id=\"q2\" verify=\"多级下拉\" cid=\"cid47\" readonly=\"readonly\"></div>\n</fieldset></div><script>function DecodeId(input) { return input ^ 2130030173; }\nvar activityId = 366296538;</script></body></html>",
+        "/joinnew/setmenuselnew.aspx": "<input id=\"hfLevelData\" value=\"%E6%80%BB%E9%83%A8%E2%95%B01%E2%95%AF%E2%94%8C%7C---%E6%80%BB%E9%83%A8%E2%95%B01%E2%95%AF%E2%94%8C%0A%E7%A0%94%E5%8F%91%E9%83%A8%0A%E6%94%AF%E6%8C%81%E9%83%A8%E3%80%92%E5%85%AC%E5%8F%B8%7C%E9%83%A8%E9%97%A8\">"
+      },
+      "expected": {
+        "provider": "wjx",
+        "title": "层级",
+        "url": "https://v.wjx.cn/vm/levels.aspx",
+        "questions": [
+          {
+            "num": 2,
+            "title": "请选择",
+            "type_code": "7",
+            "provider_question_id": "2",
+            "provider_page_id": "1",
+            "options": 2,
+            "rows": 1,
+            "option_texts": [
+              "总部‐研发部",
+              "总部‐支持部"
+            ],
+            "row_texts": [],
+            "page": 1,
+            "required": true,
+            "display_num": 1,
+            "description": "",
+            "forced_option_index": null,
+            "forced_option_text": "",
+            "forced_texts": [],
+            "fillable_options": [],
+            "attached_option_selects": [],
+            "has_attached_option_select": false,
+            "rating_max": 0,
+            "text_inputs": 0,
+            "text_input_labels": [],
+            "is_multi_text": false,
+            "question_media": [],
+            "slider_min": null,
+            "slider_max": null,
+            "slider_step": null,
+            "multi_min_limit": null,
+            "multi_max_limit": null,
+            "provider_type": "multilevel_dropdown",
+            "provider_page_raw": {
+              "cid": "cid47",
+              "submit_values": [
+                "总部┌‐研发部",
+                "总部┌‐支持部"
+              ],
+              "level_labels": [
+                "公司",
+                "部门"
+              ]
+            },
+            "is_text_like": false,
+            "is_location": false,
+            "is_description": false,
+            "is_rating": false,
+            "is_slider_matrix": false,
+            "has_jump": false,
+            "jump_rules": [],
+            "has_display_condition": false,
+            "display_conditions": [],
+            "has_dependent_display_logic": false,
+            "controls_display_targets": [],
+            "logic_parse_status": "none",
+            "unsupported": false,
+            "unsupported_reason": ""
+          }
+        ]
+      }
+    }
+  ]
+}

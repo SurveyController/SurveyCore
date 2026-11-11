@@ -14,6 +14,7 @@ type DisplayCondition struct {
 	Mode          string `json:"condition_mode"`
 	OptionIndices []int  `json:"condition_option_indices"`
 	RowIndex      *int   `json:"condition_row_index,omitempty"`
+	RawRelation   string `json:"raw_relation,omitempty"`
 }
 
 // DisplayControl describes a question whose answer controls another question.
@@ -51,11 +52,11 @@ type AttachedOptionSelect struct {
 	SelectTexts []string `json:"select_texts"`
 }
 
-// SliderRange contains provider slider bounds and step size.
+// SliderRange preserves number, string, or null bounds from provider snapshots.
 type SliderRange struct {
-	SliderMin  string `json:"slider_min,omitempty"`
-	SliderMax  string `json:"slider_max,omitempty"`
-	SliderStep string `json:"slider_step,omitempty"`
+	SliderMin  any `json:"slider_min"`
+	SliderMax  any `json:"slider_max"`
+	SliderStep any `json:"slider_step"`
 }
 
 // QuestionMeta is the public provider-neutral metadata for one question.
@@ -74,6 +75,7 @@ type QuestionMeta struct {
 	ProviderID      string   `json:"provider_question_id"`
 	ProviderPageID  string   `json:"provider_page_id"`
 	ProviderType    string   `json:"provider_type"`
+	ProviderPageRaw any      `json:"provider_page_raw"`
 	Required        bool     `json:"required"`
 	IsDescription   bool     `json:"is_description"`
 	IsLocation      bool     `json:"is_location"`
