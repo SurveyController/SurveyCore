@@ -52,6 +52,16 @@ func TestPublicPackagesCompileForExternalConsumer(t *testing.T) {
 	if submission != nil || !errors.Is(err, surveycore.ErrInvalidConfig) || surveycore.ClassifySubmissionError(err) != surveycore.ErrorKindConfig {
 		t.Fatalf("single submission contract: result=%#v error=%v", submission, err)
 	}
+	count := 0
+	for _, err := range client.RunResults(context.Background(), nil) {
+		count++
+		if !errors.Is(err, surveycore.ErrInvalidConfig) {
+			t.Fatalf("run iterator error=%v", err)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("run iterator errors=%d", count)
+	}
 
 	pool := proxy.NewPool(proxy.PoolOptions{})
 	if pool == nil {

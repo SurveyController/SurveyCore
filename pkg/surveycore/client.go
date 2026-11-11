@@ -95,7 +95,9 @@ func (client *Client) DefaultConfig(ctx context.Context, surveyURL string) (*mod
 	return client.inner.DefaultConfig(ctx, surveyURL)
 }
 
-// Run submits responses according to cfg.
+// Run submits cfg.Target attempts without automatic retries and returns totals.
+// Individual failures do not stop later attempts unless cfg.FailStop is enabled.
+// If any attempt fails, Run returns the first error after the run finishes.
 func (client *Client) Run(ctx context.Context, cfg *model.RunRequest) (*RunResult, error) {
 	return client.inner.Run(ctx, cfg)
 }
@@ -104,6 +106,7 @@ func (client *Client) Run(ctx context.Context, cfg *model.RunRequest) (*RunResul
 type EventHandler func(Event)
 
 // RunWithEvents submits responses and reports progress through handler.
+// Completed attempts include Event.Result; ordinary progress events omit it.
 func (client *Client) RunWithEvents(ctx context.Context, cfg *model.RunRequest, handler EventHandler) (*RunResult, error) {
 	if handler == nil {
 		return client.inner.RunWithEvents(ctx, cfg, nil)

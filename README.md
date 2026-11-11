@@ -108,6 +108,7 @@ api_key = ""
 | `GET` | `/api/v1/tasks` | 查询任务列表。按创建时间倒序返回。 |
 | `GET` | `/api/v1/tasks/{id}` | 查询单个任务详情。 |
 | `GET` | `/api/v1/tasks/{id}/logs` | 分页读取任务日志。 |
+| `GET` | `/api/v1/tasks/{id}/results` | 分页读取逐次提交结果。 |
 | `POST` | `/api/v1/surveys/parse` | 解析问卷，不提交答案。 |
 | `POST` | `/api/v1/configs` | 生成 V1 默认运行配置。 |
 | `POST` | `/api/v1/submissions` | 同步提交一次，返回本次结果和耗时。 |
@@ -125,6 +126,8 @@ api_key = ""
 `POST /api/v1/tasks` 也接受 `surveycore-py` 的 `serialize_config()` 导出对象（`schema_version: 1`）。Go 本地配置可用 `config.Load()` 读取同一格式。支持范围和字段映射见 [数据结构](docs/sdk/schemas.md#python-配置导入)。
 
 单次提交可调用 Go SDK 的 `client.Submit(ctx, &surveycore.SubmissionRequest{Config: cfg})`，或把配置放在 `config` 字段中发送到 `POST /api/v1/submissions`。该接口同步返回 `attempt`、`provider`、`success`、`elapsed_seconds` 和 `error`，支持 Go 与 Python v1 配置。单次提交固定执行一次，平台失败时通过 `success: false` 和 `error` 返回结果。
+
+批量运行可用 `for result, err := range client.RunResults(ctx, cfg)` 按完成顺序读取结果，`attempt` 从 1 开始。目标数表示尝试次数；每次失败保留结果并继续后续尝试，不自动重试。除第一次外，每次尝试开始前都会等待配置中的随机提交间隔。原生 Go 配置显式启用 `failStop` 时仍会在连续失败达到阈值后停止。HTTP 任务用 `GET /api/v1/tasks/{id}/results?after=0&limit=200` 读取同样的逐次结果。
 
 ## 错误响应
 

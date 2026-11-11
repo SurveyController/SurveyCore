@@ -111,11 +111,12 @@ type ThreadProgress struct {
 
 // Event reports one execution progress update.
 type Event struct {
-	Worker  string    `json:"worker"`
-	Message string    `json:"message"`
-	Success bool      `json:"success"`
-	Fail    bool      `json:"fail"`
-	Current int       `json:"current"`
-	Total   int       `json:"total"`
-	Time    time.Time `json:"time"`
+	Worker  string            `json:"worker"`
+	Message string            `json:"message"`
+	Success bool              `json:"success"`
+	Fail    bool              `json:"fail"`
+	Current int               `json:"current"`
+	Total   int               `json:"total"`
+	Time    time.Time         `json:"time"`
+	Result  *SubmissionResult `json:"result,omitempty"`
 }

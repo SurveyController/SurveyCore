@@ -76,7 +76,7 @@ feedLoop:
 	workers.Wait()
 
 	result := state.result()
-	if ctx.Err() != nil && firstErr == nil {
+	if ctx.Err() != nil {
 		firstErr = ctx.Err()
 	}
 	result.Stopped = errors.Is(firstErr, context.Canceled) || errors.Is(firstErr, context.DeadlineExceeded)

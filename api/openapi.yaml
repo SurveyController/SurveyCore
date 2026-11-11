@@ -77,6 +77,17 @@ paths:
         '400': { $ref: '#/components/responses/InvalidQuery' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/tasks/{id}/results:
+    parameters: [{ $ref: '#/components/parameters/TaskID' }]
+    get:
+      operationId: listTaskResults
+      description: Completed attempts in completion order. Use next_cursor as the next after value; has_more only describes stored results, not task completion. Results survive service restarts.
+      parameters: [{ $ref: '#/components/parameters/After' }, { $ref: '#/components/parameters/Limit' }]
+      responses:
+        '200': { description: Cursor-paginated per-attempt results, content: { application/json: { schema: { $ref: '#/components/schemas/TaskResultPage' } } } }
+        '400': { $ref: '#/components/responses/InvalidQuery' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
   /api/v1/qrcode/decode:
     post:
       operationId: decodeQRCode
@@ -182,10 +193,10 @@ components:
       additionalProperties: false
       required: [attempt, provider, success, elapsed_seconds, error]
       properties:
-        attempt: { type: integer, minimum: 0, description: Standalone Submit uses zero }
+        attempt: { type: integer, minimum: 0, description: Standalone Submit uses zero; batch attempts start at one and are returned in completion order }
         provider: { $ref: '#/components/schemas/Provider' }
         success: { type: boolean }
-        elapsed_seconds: { type: number, minimum: 0 }
+        elapsed_seconds: { type: number, minimum: 0, description: Standalone Submit includes preparation; batch results exclude shared preparation and submit intervals }
         error: { type: [string, 'null'] }
     RunRequest:
       type: object
@@ -206,7 +217,7 @@ components:
         enabled: { type: boolean }
         ratios: { type: object, additionalProperties: { type: integer } }
     PythonConfig:
-      description: Imports surveycore-py schema_version 1. Task responses use RunRequest; scheduling and results retain Go semantics.
+      description: Imports surveycore-py schema_version 1. Task responses use RunRequest. Target counts attempts, failures continue without automatic retries, and results use completion order.
       type: object
       additionalProperties: false
       required: [schema_version, url]
@@ -275,9 +286,11 @@ components:
       additionalProperties: false
       required: [target, threads, submitInterval, answerDuration, failStop, pauseOnAliyunCaptcha]
       properties:
-        target: { type: integer, minimum: 1 }
+        target: { type: integer, minimum: 1, description: Number of attempts; each failed attempt counts once without automatic retries }
         threads: { type: integer, minimum: 1 }
-        submitInterval: { $ref: '#/components/schemas/IntegerPair' }
+        submitInterval:
+          $ref: '#/components/schemas/IntegerPair'
+          description: Random seconds waited inside a concurrency slot before each attempt after the first, including new workers
         answerDuration: { $ref: '#/components/schemas/IntegerPair' }
         answerDatetimeWindow: { $ref: '#/components/schemas/StringPair' }
         failStop: { type: boolean }
@@ -494,6 +507,7 @@ components:
         current: { type: integer }
         total: { type: integer }
         time: { type: string, format: date-time }
+        result: { $ref: '#/components/schemas/SubmissionResult' }
     Task:
       type: object
       additionalProperties: false
@@ -538,6 +552,14 @@ components:
         logs: { type: array, items: { $ref: '#/components/schemas/TaskLog' } }
         next_cursor: { type: integer }
         has_more: { type: boolean }
+    TaskResultPage:
+      type: object
+      additionalProperties: false
+      required: [results, next_cursor, has_more]
+      properties:
+        results: { type: array, items: { $ref: '#/components/schemas/SubmissionResult' } }
+        next_cursor: { type: integer, minimum: 0, description: Opaque log ID cursor; an empty page preserves the input cursor }
+        has_more: { type: boolean, description: Whether more completed results are currently stored }
     ProxyExtractRequest:
       type: object
       additionalProperties: false
