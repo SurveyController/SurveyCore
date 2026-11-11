@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/proxy"
 	_ "modernc.org/sqlite"
 )
@@ -275,6 +276,43 @@ func normalizeLogLimit(limit int) int {
 		return maxLogPageSize
 	}
 	return limit
+}
+
+// LoadResults reads completion records from the existing task event log.
+func (s *Store) LoadResults(taskID string, afterID int64, limit int) (*TaskResultPage, error) {
+	if afterID < 0 {
+		return nil, errors.New("结果游标不能小于 0")
+	}
+	limit = normalizeLogLimit(limit)
+	rows, err := s.database().Query(`
+		SELECT id, json_extract(event_json, '$.result')
+		FROM v1_task_logs
+		WHERE task_id = ? AND id > ? AND json_extract(event_json, '$.result') IS NOT NULL
+		ORDER BY id ASC LIMIT ?
+	`, taskID, afterID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	page := &TaskResultPage{Results: make([]model.SubmissionResult, 0, limit), NextCursor: afterID}
+	for rows.Next() {
+		var id int64
+		var raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		if len(page.Results) == limit {
+			page.HasMore = true
+			break
+		}
+		var result model.SubmissionResult
+		if err := json.Unmarshal([]byte(raw), &result); err != nil {
+			return nil, fmt.Errorf("解析提交结果失败: %w", err)
+		}
+		page.Results = append(page.Results, result)
+		page.NextCursor = id
+	}
+	return page, rows.Err()
 }
 
 func (s *Store) database() *sql.DB {

@@ -2,10 +2,33 @@ package runtime
 
 import (
 	"context"
+	"math/rand"
 	"time"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
+
+func waitAttemptInterval(ctx context.Context, interval [2]int, state *executionState, workerIndex int, workerName string, wait func(context.Context, time.Duration) error) error {
+	low := maxInt(0, interval[0])
+	high := maxInt(low, interval[1])
+	if high == 0 {
+		return ctx.Err()
+	}
+	seconds := float64(low) + rand.Float64()*float64(high-low)
+	duration := time.Duration(seconds * float64(time.Second))
+	state.setProgress(workerIndex, workerName, "等待提交间隔", true)
+	if wait != nil {
+		return wait(ctx, duration)
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 func waitSubmitInterval(ctx context.Context, interval [2]int, state *executionState, workerIndex int, workerName string) {
 	seconds := model.SampleSubmitIntervalSeconds(interval)

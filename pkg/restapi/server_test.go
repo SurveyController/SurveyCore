@@ -1,7 +1,6 @@
 package restapi
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -40,16 +39,9 @@ func TestV1VersionUsesConfiguredBuildVersion(t *testing.T) {
 }
 
 func TestV1CreateTaskAcceptsPythonConfig(t *testing.T) {
-	s, err := New(Config{DBPath: t.TempDir() + "/tasks.db"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	// A cancelled context exercises task creation and persistence without upstream requests.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	s, _ := submissionTestServer(t, true)
 	body := `{"schema_version":1,"url":"https://www.wjx.cn/vm/demo.aspx","target":3,"concurrency":2,"random_user_agent":true,"user_agent_ratios":{"pc":100},"questions":[{"question_type":"single","probabilities":[0,1]}]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(body)).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted {

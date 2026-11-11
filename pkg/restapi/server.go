@@ -71,6 +71,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/tasks/{id}", s.get)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/stop", s.stop)
 	mux.HandleFunc("GET /api/v1/tasks/{id}/logs", s.logs)
+	mux.HandleFunc("GET /api/v1/tasks/{id}/results", s.results)
 	mux.HandleFunc("POST /api/v1/qrcode/decode", s.qr)
 	mux.HandleFunc("POST /api/v1/proxy/session", s.proxySession)
 	mux.HandleFunc("GET /api/v1/proxy/usage", s.proxyUsage)
@@ -233,6 +234,29 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, 200, p)
 }
+func (s *Server) results(w http.ResponseWriter, r *http.Request) {
+	after, err := queryInt(r, "after", 0)
+	if err != nil {
+		fail(w, 400, "invalid_query", err)
+		return
+	}
+	limit, err := queryInt(r, "limit", 200)
+	if err != nil {
+		fail(w, 400, "invalid_query", err)
+		return
+	}
+	page, err := s.manager.Results(r.PathValue("id"), int64(after), limit)
+	if errors.Is(err, service.ErrTaskNotFound) {
+		fail(w, 404, "not_found", err)
+		return
+	}
+	if err != nil {
+		fail(w, 500, "internal_error", err)
+		return
+	}
+	write(w, 200, page)
+}
+
 func (s *Server) qr(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		fail(w, 400, "invalid_request", err)

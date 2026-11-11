@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 type executionState struct {
 	mu                  sync.Mutex
+	resultMu            sync.Mutex
 	target              int
 	success             int
 	fail                int
@@ -114,6 +117,16 @@ func (s *executionState) callHandler(event Event) {
 	if s.handler != nil {
 		s.handler(event)
 	}
+}
+
+func (s *executionState) emitResult(worker string, result model.SubmissionResult) {
+	// Keep completion records ordered even when progress callbacks run concurrently.
+	s.resultMu.Lock()
+	defer s.resultMu.Unlock()
+	s.mu.Lock()
+	current := s.success + s.fail
+	s.mu.Unlock()
+	s.callHandler(Event{Worker: worker, Message: "本次提交完成", Success: result.Success, Fail: !result.Success, Current: current, Total: s.target, Time: s.now(), Result: &result})
 }
 
 func (s *executionState) result() *RunResult {

@@ -46,6 +46,12 @@ type TaskLogPage struct {
 	HasMore    bool      `json:"has_more"`
 }
 
+type TaskResultPage struct {
+	Results    []model.SubmissionResult `json:"results"`
+	NextCursor int64                    `json:"next_cursor"`
+	HasMore    bool                     `json:"has_more"`
+}
+
 type taskRuntime struct {
 	cancel context.CancelFunc
 	result *model.RunResult

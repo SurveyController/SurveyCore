@@ -54,6 +54,9 @@ func (m *Manager) Create(ctx context.Context, cfg *model.RunRequest) (*Task, err
 	if cfg == nil {
 		return nil, errors.New("配置不能为空")
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	id, err := taskID()
 	if err != nil {
 		return nil, err
@@ -64,7 +67,8 @@ func (m *Manager) Create(ctx context.Context, cfg *model.RunRequest) (*Task, err
 		return nil, err
 	}
 	m.appendLog(id, TaskLog{Timestamp: now, Level: "INFO", Message: "任务已创建"})
-	runCtx, cancel := context.WithCancel(ctx)
+	// Async tasks outlive the HTTP request that created them. Stop owns cancellation.
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	m.mu.Lock()
 	m.tasks[id] = task
 	m.runtimes[id] = &taskRuntime{cancel: cancel}
@@ -145,7 +149,9 @@ func (m *Manager) Stop(id string) (*Task, error) {
 	t.StopMessage = "用户请求停止"
 	rt.cancel()
 	snap := cloneTask(t)
-	go m.store.SaveTask(snap)
+	if err := m.store.SaveTask(snap); err != nil {
+		return nil, err
+	}
 	return snap, nil
 }
 func (m *Manager) Logs(id string, after int64, limit int) (*TaskLogPage, error) {
@@ -153,6 +159,13 @@ func (m *Manager) Logs(id string, after int64, limit int) (*TaskLogPage, error) 
 		return nil, ErrTaskNotFound
 	}
 	return m.store.LoadLogs(id, after, limit)
+}
+
+func (m *Manager) Results(id string, after int64, limit int) (*TaskResultPage, error) {
+	if _, ok := m.Get(id); !ok {
+		return nil, ErrTaskNotFound
+	}
+	return m.store.LoadResults(id, after, limit)
 }
 func (m *Manager) Parse(ctx context.Context, url string) (*model.SurveyDefinition, error) {
 	return m.client.Parse(ctx, url)

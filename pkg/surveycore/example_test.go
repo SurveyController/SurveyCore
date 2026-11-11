@@ -43,3 +43,18 @@ func ExampleClient_Submit() {
 	}
 	fmt.Println(result.Success, result.ElapsedSeconds)
 }
+
+func ExampleClient_RunResults() {
+	client := surveycore.New()
+	config := &model.RunRequest{
+		SurveySource:  model.SurveySource{URL: "https://www.wjx.cn/vm/example.aspx"},
+		ExecutionPlan: model.ExecutionPlan{Target: 3, Threads: 2},
+	}
+	for result, err := range client.RunResults(context.Background(), config) {
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(result.Attempt, result.Success, result.Error)
+	}
+}

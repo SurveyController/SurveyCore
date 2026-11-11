@@ -19,7 +19,11 @@ func (c *Client) Run(ctx context.Context, cfg *RunRequest) (*RunResult, error) {
 }
 
 func (c *Client) RunWithEvents(ctx context.Context, cfg *RunRequest, handler EventHandler) (*RunResult, error) {
-	return c.RunWithExecutionOptions(ctx, cfg, handler, ExecutionOptionsFromConfig(cfg))
+	result, err := c.RunWithExecutionOptions(ctx, cfg, handler, ExecutionOptionsFromConfig(cfg))
+	if err != nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	return result, err
 }
 
 func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, handler EventHandler, options ExecutionOptions) (*RunResult, error) {
@@ -29,14 +33,18 @@ func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, h
 	if strings.TrimSpace(cfg.SurveySource.URL) == "" {
 		return nil, fmt.Errorf("%w: 必须提供问卷链接", ErrInvalidConfig)
 	}
-	provider := detectProvider(cfg.SurveySource.URL)
-	if cfg.SurveySource.Provider != "" {
-		provider = cfg.SurveySource.Provider
+	provider, err := submissionProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	runCfg, runOptions, err := c.prepareReverseFillExecution(ctx, cfg, provider, options)
 	if err != nil {
 		return nil, err
 	}
+	runCfg.SurveySource.Provider = provider
 	if err := prepareAnswerDatetimeWindowExecution(runCfg, provider); err != nil {
 		return nil, err
 	}
@@ -69,6 +77,7 @@ func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, h
 		if len(runCfg.SurveyDefinition.Questions) == 0 {
 			runCfg.SurveyDefinition = prepared.Definition
 		}
+		ensureQuestionStrategies(runCfg)
 		emitPrepared(handler)
 		result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
 			localRunner := runner
@@ -103,6 +112,7 @@ func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, h
 		if len(runCfg.SurveyDefinition.Questions) == 0 {
 			runCfg.SurveyDefinition = prepared.Definition
 		}
+		ensureQuestionStrategies(runCfg)
 		emitPrepared(handler)
 		result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
 			localRunner := runner
@@ -139,6 +149,7 @@ func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, h
 	if len(runCfg.SurveyDefinition.Questions) == 0 {
 		runCfg.SurveyDefinition = prepared.Definition
 	}
+	ensureQuestionStrategies(runCfg)
 	emitPrepared(handler)
 	result, err := RunExecution(ctx, runCfg, func(runCtx context.Context, local *model.SubmissionRequest, localHandler EventHandler) (*RunResult, error) {
 		localRunner := runner

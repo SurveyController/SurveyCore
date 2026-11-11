@@ -19,17 +19,14 @@ func ExecutionOptionsFromConfig(cfg *RunRequest) ExecutionOptions {
 	if threads <= 0 {
 		threads = 1
 	}
-	maxRetries := 0
-	if cfg.PsychometricPolicy.Enabled {
-		maxRetries = 1
-	}
 	options := ExecutionOptions{
-		Target:            target,
-		Threads:           threads,
-		MaxRetries:        maxRetries,
-		FailStop:          cfg.FailStop,
-		FailStopThreshold: defaultFailStopThreshold,
-		CooldownOnError:   30 * time.Second,
+		Target:                target,
+		Threads:               threads,
+		ContinueOnFailure:     true,
+		IntervalBeforeAttempt: true,
+		FailStop:              cfg.FailStop,
+		FailStopThreshold:     defaultFailStopThreshold,
+		CooldownOnError:       30 * time.Second,
 	}
 	if cfg.UserAgent != nil {
 		options.UserAgent = *cfg.UserAgent
