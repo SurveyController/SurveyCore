@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "url": "https://www.wjx.cn/vm/demo.aspx",
+  "questions": [
+    {
+      "attached_option_selects": [],
+      "custom_weights": null,
+      "dimension": null,
+      "distribution_mode": "random",
+      "fillable_option_indices": null,
+      "is_location": false,
+      "location_parts": [],
+      "multi_text_blank_ai_flags": [],
+      "multi_text_blank_int_ranges": [],
+      "multi_text_blank_modes": [],
+      "option_count": 2,
+      "option_fill_texts": null,
+      "probabilities": [
+        0,
+        1
+      ],
+      "provider_page_id": null,
+      "provider_question_id": null,
+      "psycho_bias": "custom",
+      "question_num": null,
+      "question_title": null,
+      "question_type": "single",
+      "rows": 1,
+      "survey_provider": "wjx",
+      "text_random_int_range": [],
+      "text_random_mode": "none",
+      "texts": null
+    },
+    {
+      "attached_option_selects": [],
+      "custom_weights": null,
+      "dimension": null,
+      "distribution_mode": "random",
+      "fillable_option_indices": null,
+      "is_location": false,
+      "location_parts": [],
+      "multi_text_blank_ai_flags": [],
+      "multi_text_blank_int_ranges": [],
+      "multi_text_blank_modes": [],
+      "option_count": 3,
+      "option_fill_texts": null,
+      "probabilities": [
+        100,
+        0,
+        100
+      ],
+      "provider_page_id": null,
+      "provider_question_id": null,
+      "psycho_bias": "custom",
+      "question_num": null,
+      "question_title": null,
+      "question_type": "multiple",
+      "rows": 1,
+      "survey_provider": "wjx",
+      "text_random_int_range": [],
+      "text_random_mode": "none",
+      "texts": null
+    },
+    {
+      "attached_option_selects": [],
+      "custom_weights": null,
+      "dimension": null,
+      "distribution_mode": "random",
+      "fillable_option_indices": null,
+      "is_location": false,
+      "location_parts": [],
+      "multi_text_blank_ai_flags": [],
+      "multi_text_blank_int_ranges": [],
+      "multi_text_blank_modes": [],
+      "option_count": 2,
+      "option_fill_texts": null,
+      "probabilities": [
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "provider_page_id": null,
+      "provider_question_id": null,
+      "psycho_bias": "custom",
+      "question_num": null,
+      "question_title": null,
+      "question_type": "matrix",
+      "rows": 2,
+      "survey_provider": "wjx",
+      "text_random_int_range": [],
+      "text_random_mode": "none",
+      "texts": null
+    },
+    {
+      "attached_option_selects": [],
+      "custom_weights": null,
+      "dimension": null,
+      "distribution_mode": "random",
+      "fillable_option_indices": null,
+      "is_location": false,
+      "location_parts": [],
+      "multi_text_blank_ai_flags": [],
+      "multi_text_blank_int_ranges": [],
+      "multi_text_blank_modes": [],
+      "option_count": 0,
+      "option_fill_texts": null,
+      "probabilities": [
+        0,
+        1
+      ],
+      "provider_page_id": null,
+      "provider_question_id": null,
+      "psycho_bias": "custom",
+      "question_num": null,
+      "question_title": null,
+      "question_type": "text",
+      "rows": 1,
+      "survey_provider": "wjx",
+      "text_random_int_range": [],
+      "text_random_mode": "none",
+      "texts": [
+        "first",
+        "second"
+      ]
+    },
+    {
+      "attached_option_selects": [],
+      "custom_weights": null,
+      "dimension": null,
+      "distribution_mode": "custom",
+      "fillable_option_indices": null,
+      "is_location": false,
+      "location_parts": [],
+      "multi_text_blank_ai_flags": [],
+      "multi_text_blank_int_ranges": [],
+      "multi_text_blank_modes": [],
+      "option_count": 0,
+      "option_fill_texts": null,
+      "probabilities": 37,
+      "provider_page_id": null,
+      "provider_question_id": null,
+      "psycho_bias": "custom",
+      "question_num": null,
+      "question_title": null,
+      "question_type": "slider",
+      "rows": 1,
+      "survey_provider": "wjx",
+      "text_random_int_range": [],
+      "text_random_mode": "none",
+      "texts": null
+    }
+  ],
+  "target": 3,
+  "concurrency": 2,
+  "provider": "wjx",
+  "answer_duration": [
+    0,
+    0
+  ],
+  "submit_interval": [
+    0,
+    0
+  ],
+  "answer_datetime_window": [
+    "",
+    ""
+  ],
+  "random_user_agent": true,
+  "user_agent_ratios": {
+    "wechat": 0,
+    "mobile": 0,
+    "pc": 100
+  },
+  "reliability_mode": true,
+  "target_alpha": 0.85,
+  "answer_rules": []
+}

@@ -119,6 +119,10 @@ api_key = ""
 | `POST` | `/api/v1/proxy/bonus` | 领取代理额度。 |
 | `POST` | `/api/v1/proxy/redeem` | 兑换代理卡。 |
 
+## Python 配置导入
+
+`POST /api/v1/tasks` 也接受 `surveycore-py` 的 `serialize_config()` 导出对象（`schema_version: 1`）。Go 本地配置可用 `config.Load()` 读取同一格式。支持范围和字段映射见 [数据结构](docs/sdk/schemas.md#python-配置导入)。
+
 ## 错误响应
 
 API 错误统一返回稳定错误码、用户消息和调试详情：

@@ -1,12 +1,15 @@
 package restapi
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/SurveyController/SurveyCore/internal/service"
 )
 
 func TestV1VersionUsesConfiguredBuildVersion(t *testing.T) {
@@ -33,6 +36,53 @@ func TestV1VersionUsesConfiguredBuildVersion(t *testing.T) {
 	}
 	if payload["version"] != "v0.2.0-test" {
 		t.Fatalf("version=%q", payload["version"])
+	}
+}
+
+func TestV1CreateTaskAcceptsPythonConfig(t *testing.T) {
+	s, err := New(Config{DBPath: t.TempDir() + "/tasks.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// A cancelled context exercises task creation and persistence without upstream requests.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	body := `{"schema_version":1,"url":"https://www.wjx.cn/vm/demo.aspx","target":3,"concurrency":2,"random_user_agent":true,"user_agent_ratios":{"pc":100},"questions":[{"question_type":"single","probabilities":[0,1]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(body)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var task service.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Config.ExecutionPlan.Threads != 2 || task.Config.Target != 3 || task.Config.UserAgent == nil || !task.Config.UserAgent.Enabled || task.Config.AnswerPlan.Strategies[0].Probabilities.Options[1] != 1 {
+		t.Fatalf("task config = %#v", task.Config)
+	}
+}
+
+func TestV1CreateTaskRejectsInvalidPythonConfig(t *testing.T) {
+	s, err := New(Config{DBPath: t.TempDir() + "/tasks.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, body := range []string{
+		`{"schema_version":2,"url":"x"}`,
+		`{"schema_version":1,"url":"x","concurrency":0}`,
+		`{"schema_version":1,"url":"x","execution":{}}`,
+		`{"schema_version":1,"url":"x","questions":[{"question_type":"single","unknown":1}]}`,
+		`{"schema_version":1,"url":"x"} {}`,
+		`null`,
+	} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"code":"invalid_json"`) {
+			t.Fatalf("body=%s status=%d error=%s", body, rec.Code, rec.Body.String())
+		}
 	}
 }
 

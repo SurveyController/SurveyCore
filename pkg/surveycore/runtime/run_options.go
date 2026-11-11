@@ -23,7 +23,7 @@ func ExecutionOptionsFromConfig(cfg *RunRequest) ExecutionOptions {
 	if cfg.PsychometricPolicy.Enabled {
 		maxRetries = 1
 	}
-	return ExecutionOptions{
+	options := ExecutionOptions{
 		Target:            target,
 		Threads:           threads,
 		MaxRetries:        maxRetries,
@@ -31,6 +31,14 @@ func ExecutionOptionsFromConfig(cfg *RunRequest) ExecutionOptions {
 		FailStopThreshold: defaultFailStopThreshold,
 		CooldownOnError:   30 * time.Second,
 	}
+	if cfg.UserAgent != nil {
+		options.UserAgent = *cfg.UserAgent
+		options.UserAgent.Ratios = make(map[string]int, len(cfg.UserAgent.Ratios))
+		for key, value := range cfg.UserAgent.Ratios {
+			options.UserAgent.Ratios[key] = value
+		}
+	}
+	return options
 }
 
 func failStopThreshold(options ExecutionOptions) int {

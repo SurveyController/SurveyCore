@@ -12,6 +12,14 @@ func cloneRunRequest(cfg *RunRequest) RunRequest {
 	cloned := *cfg
 	cloned.SurveyDefinition = model.CloneSurveyDefinition(cfg.SurveyDefinition)
 	cloned.AnswerPlan = model.CloneAnswerPlan(cfg.AnswerPlan)
+	if cfg.UserAgent != nil {
+		settings := *cfg.UserAgent
+		settings.Ratios = make(map[string]int, len(cfg.UserAgent.Ratios))
+		for key, value := range cfg.UserAgent.Ratios {
+			settings.Ratios[key] = value
+		}
+		cloned.UserAgent = &settings
+	}
 	return cloned
 }
 

@@ -17,7 +17,7 @@ func BuildDefaultConfigFilename(surveyTitle string) string {
 	return sanitizeFilename(surveyTitle) + ".json"
 }
 
-// Load reads either a schemaVersion 2 document or a supported legacy document.
+// Load reads local v2, Python v1, or supported legacy configuration.
 func Load(path string, strict bool) (model.RunRequest, error) {
 	document, err := LoadDocument(path, strict)
 	if err != nil {
@@ -65,7 +65,12 @@ func LoadDocument(path string, strict bool) (ConfigDocument, error) {
 		}
 		return document, nil
 	}
-	document, err := migrateLegacyDocument(payload)
+	var document ConfigDocument
+	if _, ok := payload["schema_version"]; ok {
+		document, err = DeserializePythonConfig(payload)
+	} else {
+		document, err = migrateLegacyDocument(payload)
+	}
 	if err != nil {
 		if strict {
 			return ConfigDocument{}, fmt.Errorf("配置不兼容: %s -> %w", path, err)

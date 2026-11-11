@@ -30,8 +30,8 @@ type PsychometricPolicy struct {
 
 // UserAgentSettings controls randomized runtime user-agent selection.
 type UserAgentSettings struct {
-	Enabled bool
-	Ratios  map[string]int
+	Enabled bool           `json:"enabled"`
+	Ratios  map[string]int `json:"ratios,omitempty"`
 }
 
 // RunRequest is the complete configuration accepted by Run and the V1 task API.
@@ -42,6 +42,7 @@ type RunRequest struct {
 	AnswerPlan         `json:"answers"`
 	ReverseFillPlan    `json:"reverseFill"`
 	PsychometricPolicy `json:"psychometrics"`
+	UserAgent          *UserAgentSettings `json:"userAgent,omitempty"`
 }
 
 // AnswerAction is a prepared provider-neutral answer for one question.
