@@ -32,8 +32,12 @@ func (p Parser) Parse(ctx context.Context, surveyURL string) (model.SurveyDefini
 
 func (p Parser) fetchViaHTTP(ctx context.Context, surveyID string, hashValue string) (model.SurveyDefinition, error) {
 	headers := apiHeaders(pageURL(surveyID, hashValue), p.UserAgent)
-	if _, err := p.requestAPI(ctx, surveyID, "session", hashValue, headers, nil); err != nil {
+	session, err := p.requestAPI(ctx, surveyID, "session", hashValue, headers, nil)
+	if err != nil {
 		return model.SurveyDefinition{}, err
+	}
+	if sessionID := strings.TrimSpace(stringValue(session["answer_session_id"])); sessionID != "" {
+		headers["X-Answer-Session"] = sessionID
 	}
 
 	var lastErr error
