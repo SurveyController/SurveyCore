@@ -1,6 +1,7 @@
 package restapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	surveyio "github.com/SurveyController/SurveyCore/internal/io"
 	"github.com/SurveyController/SurveyCore/internal/service"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore"
+	surveyconfig "github.com/SurveyController/SurveyCore/pkg/surveycore/config"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/proxy"
 )
@@ -126,8 +128,13 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, v)
 }
 func (s *Server) create(w http.ResponseWriter, r *http.Request) {
-	var cfg model.RunRequest
-	if err := decode(r, &cfg); err != nil {
+	var body json.RawMessage
+	if err := decode(r, &body); err != nil {
+		fail(w, 400, "invalid_json", err)
+		return
+	}
+	cfg, err := decodeTaskConfig(body)
+	if err != nil {
 		fail(w, 400, "invalid_json", err)
 		return
 	}
@@ -137,6 +144,26 @@ func (s *Server) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 202, t)
+}
+
+func decodeTaskConfig(body []byte) (model.RunRequest, error) {
+	var payload map[string]any
+	payloadDecoder := json.NewDecoder(bytes.NewReader(body))
+	payloadDecoder.UseNumber()
+	if err := payloadDecoder.Decode(&payload); err != nil {
+		return model.RunRequest{}, err
+	}
+	if payload == nil {
+		return model.RunRequest{}, errors.New("task config must be a JSON object")
+	}
+	if _, ok := payload["schema_version"]; ok {
+		return surveyconfig.DeserializeRunRequest(payload)
+	}
+	var config model.RunRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&config)
+	return config, err
 }
 func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
 	write(w, 200, map[string]any{"tasks": s.manager.List()})

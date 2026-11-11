@@ -61,7 +61,7 @@ jobs:
         run: go build ./...
 
   verify-linux-amd64:
-    name: Verify Linux amd64
+    name: Verify (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -107,3 +107,20 @@ jobs:
         run: go mod tidy -diff
       - name: Check whitespace
         run: git diff --check
+
+  live-parser-regression:
+    name: Live Parser Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Parse authorized surveys on all providers
+        env:
+          SURVEYCORE_LIVE_PARSE: "1"
+        run: go test -count=1 -timeout=3m ./CI/live_tests -run '^TestLiveProviderParse$' -v

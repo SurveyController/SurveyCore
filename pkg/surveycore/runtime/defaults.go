@@ -80,7 +80,7 @@ func populateConfigSurveyDefinition(cfg *RunRequest, definition *SurveyDefinitio
 	}
 	cfg.SurveyDefinition = *definition
 	cfg.SurveySource.Provider = definition.Provider
-	cfg.AnswerPlan.Strategies = buildDefaultQuestionStrategies(definition.Questions)
+	ensureQuestionStrategies(cfg)
 }
 
 func ensureQuestionStrategies(cfg *RunRequest) {

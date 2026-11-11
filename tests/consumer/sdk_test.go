@@ -37,6 +37,15 @@ func TestPublicPackagesCompileForExternalConsumer(t *testing.T) {
 	if document.SchemaVersion != config.ConfigSchemaVersion {
 		t.Fatalf("schema version = %d", document.SchemaVersion)
 	}
+	imported, err := config.DeserializeRunRequest(map[string]any{
+		"schema_version": 1, "url": "https://www.wjx.cn/vm/demo.aspx", "concurrency": 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.ExecutionPlan.Threads != 2 {
+		t.Fatalf("Python concurrency = %d", imported.ExecutionPlan.Threads)
+	}
 
 	pool := proxy.NewPool(proxy.PoolOptions{})
 	if pool == nil {

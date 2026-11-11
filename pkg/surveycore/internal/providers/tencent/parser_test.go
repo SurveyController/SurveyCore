@@ -52,6 +52,35 @@ func TestParserParsesTencentQuestions(t *testing.T) {
 	}
 }
 
+func TestParserCarriesAnswerSessionToMetadataRequests(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/session") {
+			writeTencentJSON(t, w, map[string]any{"code": "OK", "data": map[string]any{"answer_session_id": "parse-session"}})
+			return
+		}
+		if r.Header.Get("X-Answer-Session") != "parse-session" {
+			writeTencentJSON(t, w, map[string]any{"code": "InvalidArgument"})
+			return
+		}
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/meta"):
+			writeTencentJSON(t, w, map[string]any{"code": "OK", "data": map[string]any{"title": "Session survey"}})
+		case strings.HasSuffix(r.URL.Path, "/questions"):
+			writeTencentJSON(t, w, map[string]any{"code": "OK", "data": map[string]any{"questions": loadTencentQuestionsFixture(t)}})
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	definition, err := (Parser{HTTP: rewriteClient(server.URL)}).Parse(context.Background(), "https://wj.qq.com/s2/123/hash/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(definition.Questions) == 0 {
+		t.Fatal("session-backed parser returned no questions")
+	}
+}
+
 func TestTencentAttachLogicMetadata(t *testing.T) {
 	raw := []map[string]any{
 		{"id": "q-1", "type": "radio", "title": "单选", "page_id": "p-1", "page": 1, "options": []any{map[string]any{"id": "o-1", "text": "A", "display": "q-2"}}},

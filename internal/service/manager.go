@@ -69,9 +69,10 @@ func (m *Manager) Create(ctx context.Context, cfg *model.RunRequest) (*Task, err
 	m.tasks[id] = task
 	m.runtimes[id] = &taskRuntime{cancel: cancel}
 	m.wg.Add(1)
+	snapshot := cloneTask(task)
 	m.mu.Unlock()
 	go func() { defer m.wg.Done(); m.run(runCtx, id) }()
-	return cloneTask(task), nil
+	return snapshot, nil
 }
 
 func (m *Manager) run(ctx context.Context, id string) {

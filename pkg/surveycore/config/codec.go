@@ -48,8 +48,15 @@ func SerializeRunRequest(config model.RunRequest) map[string]any {
 	return payload
 }
 
-// DeserializeRunRequest accepts schemaVersion 2 and supported legacy objects.
+// DeserializeRunRequest accepts local v2, Python v1, and supported legacy objects.
 func DeserializeRunRequest(payload map[string]any) (model.RunRequest, error) {
+	if _, ok := payload["schema_version"]; ok {
+		document, err := DeserializePythonConfig(payload)
+		if err != nil {
+			return model.RunRequest{}, err
+		}
+		return RunRequestFromConfigDocument(document)
+	}
 	if _, ok := payload["schemaVersion"]; ok {
 		document, err := DeserializeConfigDocument(payload)
 		if err != nil {

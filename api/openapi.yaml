@@ -39,7 +39,7 @@ paths:
         '200': { description: Tasks ordered by creation time, content: { application/json: { schema: { $ref: '#/components/schemas/TaskList' } } } }
     post:
       operationId: createTask
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/RunRequest' }, { $ref: '#/components/schemas/PythonConfig' }] } } } }
       responses:
         '202': { description: Task accepted, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
         '400': { $ref: '#/components/responses/InvalidJSON' }
@@ -167,6 +167,71 @@ components:
         answers: { $ref: '#/components/schemas/AnswerPlan' }
         reverseFill: { $ref: '#/components/schemas/ReverseFillPlan' }
         psychometrics: { $ref: '#/components/schemas/PsychometricPolicy' }
+        userAgent: { $ref: '#/components/schemas/UserAgentSettings' }
+    UserAgentSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled: { type: boolean }
+        ratios: { type: object, additionalProperties: { type: integer } }
+    PythonConfig:
+      description: Imports surveycore-py schema_version 1. Task responses use RunRequest; scheduling and results retain Go semantics.
+      type: object
+      additionalProperties: false
+      required: [schema_version, url]
+      properties:
+        schema_version: { type: integer, const: 1 }
+        url: { type: string, minLength: 1 }
+        provider: { type: [string, 'null'], enum: [wjx, qq, credamo, null] }
+        target: { type: integer, minimum: 1, default: 1 }
+        concurrency: { type: integer, minimum: 1, default: 1 }
+        questions: { type: array, items: { $ref: '#/components/schemas/PythonQuestionConfig' } }
+        answer_duration: { $ref: '#/components/schemas/IntegerPair', default: [60, 120] }
+        submit_interval: { $ref: '#/components/schemas/IntegerPair', default: [0, 0] }
+        answer_datetime_window: { $ref: '#/components/schemas/StringPair' }
+        random_user_agent: { type: boolean, default: false }
+        user_agent_ratios: { type: object, additionalProperties: { type: integer } }
+        reliability_mode: { type: boolean, default: true }
+        target_alpha: { type: number, default: 0.85 }
+        answer_rules: { type: array, items: { $ref: '#/components/schemas/ConsistencyRule' } }
+    PythonWeights:
+      anyOf:
+        - { type: 'null' }
+        - { type: number }
+        - type: array
+          items:
+            anyOf:
+              - { type: [number, 'null'] }
+              - { type: array, items: { type: [number, 'null'] } }
+    PythonQuestionConfig:
+      type: object
+      additionalProperties: false
+      required: [question_type]
+      properties:
+        question_type: { type: string, minLength: 1 }
+        probabilities: { $ref: '#/components/schemas/PythonWeights' }
+        custom_weights: { $ref: '#/components/schemas/PythonWeights' }
+        texts: { type: [array, 'null'], items: { type: string } }
+        rows: { type: integer }
+        option_count: { type: integer }
+        distribution_mode: { type: string }
+        question_num: { type: [integer, 'null'] }
+        question_title: { type: [string, 'null'] }
+        survey_provider: { type: string }
+        provider_question_id: { type: [string, 'null'] }
+        provider_page_id: { type: [string, 'null'] }
+        option_fill_texts: { type: [array, 'null'], items: { type: [string, 'null'] } }
+        fillable_option_indices: { type: [array, 'null'], items: { type: integer } }
+        attached_option_selects: { type: array, items: { $ref: '#/components/schemas/AttachedOptionSelect' } }
+        is_location: { type: boolean }
+        location_parts: { type: array, items: { type: string } }
+        multi_text_blank_modes: { type: array, items: { type: string } }
+        multi_text_blank_ai_flags: { type: array, items: { type: boolean } }
+        multi_text_blank_int_ranges: { type: array, items: { type: array, items: { type: integer } } }
+        text_random_mode: { type: string }
+        text_random_int_range: { type: array, items: { type: integer } }
+        dimension: { type: [string, 'null'] }
+        psycho_bias: { type: string }
     SurveySource:
       type: object
       additionalProperties: false

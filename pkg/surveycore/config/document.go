@@ -49,7 +49,7 @@ type ConfigDocument struct {
 
 // ConfigDocumentFromRunRequest converts a public run request to a local document.
 func ConfigDocumentFromRunRequest(config model.RunRequest) ConfigDocument {
-	return ConfigDocument{
+	document := ConfigDocument{
 		SchemaVersion: ConfigSchemaVersion,
 		Survey: SurveyDocument{
 			URL:        strings.TrimSpace(config.SurveySource.URL),
@@ -62,6 +62,11 @@ func ConfigDocumentFromRunRequest(config model.RunRequest) ConfigDocument {
 		ReverseFill:   config.ReverseFillPlan,
 		Psychometrics: config.PsychometricPolicy,
 	}
+	if config.UserAgent != nil {
+		document.Network.RandomUAEnabled = config.UserAgent.Enabled
+		document.Network.RandomUARatios = cloneIntValues(config.UserAgent.Ratios)
+	}
+	return document
 }
 
 // RunRequestFromConfigDocument validates and converts a local document.
@@ -75,14 +80,21 @@ func RunRequestFromConfigDocument(document ConfigDocument) (model.RunRequest, er
 	definition := model.CloneSurveyDefinition(document.Survey.Definition)
 	definition.Provider = firstNonEmpty(document.Survey.Provider, definition.Provider)
 	definition.Title = firstNonEmpty(document.Survey.Title, definition.Title)
-	return model.RunRequest{
+	request := model.RunRequest{
 		SurveySource:       model.SurveySource{URL: strings.TrimSpace(document.Survey.URL), Provider: firstNonEmpty(document.Survey.Provider, definition.Provider)},
 		SurveyDefinition:   definition,
 		ExecutionPlan:      document.Execution,
 		AnswerPlan:         model.CloneAnswerPlan(document.Answers),
 		ReverseFillPlan:    document.ReverseFill,
 		PsychometricPolicy: document.Psychometrics,
-	}, nil
+	}
+	if document.Network.RandomUAEnabled || document.Network.RandomUARatios != nil {
+		request.UserAgent = &model.UserAgentSettings{
+			Enabled: document.Network.RandomUAEnabled,
+			Ratios:  cloneIntValues(document.Network.RandomUARatios),
+		}
+	}
+	return request, nil
 }
 
 func validateAnswerWeights(plan model.AnswerPlan) error {
