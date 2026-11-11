@@ -31,3 +31,15 @@ func ExampleClassifyRunError() {
 	// true
 	// config
 }
+
+func ExampleClient_Submit() {
+	client := surveycore.New()
+	result, err := client.Submit(context.Background(), &surveycore.SubmissionRequest{
+		Config: &model.RunRequest{SurveySource: model.SurveySource{URL: "https://www.wjx.cn/vm/example.aspx"}},
+	})
+	if err != nil {
+		fmt.Println(surveycore.ClassifySubmissionError(err))
+		return
+	}
+	fmt.Println(result.Success, result.ElapsedSeconds)
+}

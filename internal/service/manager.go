@@ -157,6 +157,10 @@ func (m *Manager) Logs(id string, after int64, limit int) (*TaskLogPage, error) 
 func (m *Manager) Parse(ctx context.Context, url string) (*model.SurveyDefinition, error) {
 	return m.client.Parse(ctx, url)
 }
+
+func (m *Manager) Submit(ctx context.Context, request *surveycore.SubmissionRequest) (*surveycore.SubmissionResult, error) {
+	return m.client.Submit(ctx, request)
+}
 func (m *Manager) DefaultConfig(ctx context.Context, url string) (*model.RunRequest, error) {
 	return m.client.DefaultConfig(ctx, url)
 }

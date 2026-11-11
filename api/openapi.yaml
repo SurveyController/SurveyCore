@@ -32,6 +32,14 @@ paths:
         '200': { description: Default run configuration, content: { application/json: { schema: { $ref: '#/components/schemas/RunRequest' } } } }
         '400': { $ref: '#/components/responses/InvalidJSON' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+  /api/v1/submissions:
+    post:
+      operationId: submitOnce
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SubmissionRequest' } } } }
+      responses:
+        '200': { description: One attempt completed; inspect success and error for the platform outcome, content: { application/json: { schema: { $ref: '#/components/schemas/SubmissionResult' } } } }
+        '400': { $ref: '#/components/responses/InvalidJSON' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /api/v1/tasks:
     get:
       operationId: listTasks
@@ -156,6 +164,29 @@ components:
       required: [url]
       properties: { url: { type: string, format: uri } }
     Provider: { type: string, enum: [wjx, qq, credamo] }
+    SubmissionRequest:
+      type: object
+      additionalProperties: false
+      required: [config]
+      properties:
+        config:
+          oneOf:
+            - { $ref: '#/components/schemas/RunRequest' }
+            - { $ref: '#/components/schemas/PythonConfig' }
+        survey:
+          anyOf:
+            - { $ref: '#/components/schemas/SurveyDefinition' }
+            - { type: 'null' }
+    SubmissionResult:
+      type: object
+      additionalProperties: false
+      required: [attempt, provider, success, elapsed_seconds, error]
+      properties:
+        attempt: { type: integer, minimum: 0, description: Standalone Submit uses zero }
+        provider: { $ref: '#/components/schemas/Provider' }
+        success: { type: boolean }
+        elapsed_seconds: { type: number, minimum: 0 }
+        error: { type: [string, 'null'] }
     RunRequest:
       type: object
       additionalProperties: false
