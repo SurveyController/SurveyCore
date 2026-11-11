@@ -126,7 +126,7 @@ func unsupportedReason(providerType string) string {
 	if label := blockedRuntimeProviderTypes[providerType]; label != "" {
 		return "当前版本暂不支持腾讯问卷" + label + "题"
 	}
-	if supportedProviderTypes[providerType] {
+	if supportedProviderTypes[providerType] || providerType == "description" {
 		return ""
 	}
 	if providerType == "" {

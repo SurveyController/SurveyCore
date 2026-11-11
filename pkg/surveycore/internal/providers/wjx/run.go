@@ -33,9 +33,9 @@ func (r Runner) Prepare(ctx context.Context, request *model.SubmissionRequest) (
 	if err != nil {
 		return nil, runerror.Wrap(runerror.KindParse, fmt.Errorf("解析问卷失败: %w", err))
 	}
-	definition := request.Definition
+	definition := model.CloneSurveyDefinition(request.Definition)
 	if len(definition.Questions) == 0 {
-		definition, err = ParseDefinitionFromHTML(htmlText)
+		definition, err = parser.parseDefinition(ctx, htmlText, request.Source.URL)
 		if err != nil {
 			return nil, runerror.Wrap(runerror.KindParse, fmt.Errorf("解析问卷失败: %w", err))
 		}
@@ -43,7 +43,7 @@ func (r Runner) Prepare(ctx context.Context, request *model.SubmissionRequest) (
 			return nil, runerror.Wrap(runerror.KindParse, ParseError{Message: "问卷星 HTTP 页面未返回可解析题目"})
 		}
 	}
-	return &PreparedSurvey{Definition: definition, SceneID: extractSceneID(htmlText)}, nil
+	return &PreparedSurvey{Definition: definition, SceneID: extractSceneID(htmlText), EmptyQuestionNumbers: emptyGapfillNumbers(htmlText)}, nil
 }
 
 func (r Runner) RunPrepared(ctx context.Context, request *model.SubmissionRequest, prepared *PreparedSurvey, handler EventHandler) (Result, error) {
@@ -64,7 +64,7 @@ func (r Runner) RunPrepared(ctx context.Context, request *model.SubmissionReques
 			result.Status = "stopped"
 			return result, err
 		}
-		submitData, err := buildSubmitData(definition.Questions, request.Context.Actions)
+		submitData, err := buildSubmitData(definition.Questions, request.Context.Actions, prepared.EmptyQuestionNumbers...)
 		if err != nil {
 			result.Fail++
 			emit(handler, "生成答案失败", false, true, result.Success+result.Fail, target)

@@ -17,19 +17,19 @@ func TestParseDefinitionFromHTML(t *testing.T) {
 		t.Fatalf("question count = %d", len(definition.Questions))
 	}
 	first := definition.Questions[0]
-	if first.ProviderType != "single" || first.TypeCode != "3" || first.Options != 2 || first.ForcedOptionIdx == nil || *first.ForcedOptionIdx != 1 {
+	if first.ProviderType != "3" || first.TypeCode != "3" || first.Options != 2 || first.ForcedOptionIdx == nil || *first.ForcedOptionIdx != 1 {
 		t.Fatalf("first = %#v", first)
 	}
 	multiple := definition.Questions[1]
-	if multiple.ProviderType != "multiple" || multiple.MultiMinLimit == nil || *multiple.MultiMinLimit != 1 || multiple.MultiMaxLimit == nil || *multiple.MultiMaxLimit != 2 {
+	if multiple.ProviderType != "4" || multiple.MultiMinLimit == nil || *multiple.MultiMinLimit != 1 || multiple.MultiMaxLimit == nil || *multiple.MultiMaxLimit != 2 {
 		t.Fatalf("multiple = %#v", multiple)
 	}
 	matrix := definition.Questions[4]
-	if matrix.ProviderType != "matrix" || matrix.Rows != 2 || matrix.Options != 2 || len(matrix.RowTexts) != 2 {
+	if matrix.ProviderType != "6" || matrix.Rows != 2 || matrix.Options != 2 || len(matrix.RowTexts) != 2 {
 		t.Fatalf("matrix = %#v", matrix)
 	}
 	text := definition.Questions[5]
-	if text.ProviderType != "multi_text" || text.TextInputs != 2 {
+	if text.ProviderType != "1" || text.TextInputs != 2 {
 		t.Fatalf("text = %#v", text)
 	}
 }
@@ -52,7 +52,7 @@ func TestParseDefinitionMetadataFields(t *testing.T) {
       <div><span class="label">B</span></div>
     </div>
   </div>
-  <div topic="2" id="div2" type="1" style="display:none" relation="1">
+  <div topic="2" id="div2" type="1" style="display:none" relation="1,1">
     <div class="topichtml">2. 填空</div><input type="text" placeholder="姓名" /><input type="text" />
   </div>
   <div topic="3" id="div3" type="5">
@@ -77,7 +77,7 @@ func TestParseDefinitionMetadataFields(t *testing.T) {
 		t.Fatalf("second = %#v", second)
 	}
 	third := definition.Questions[2]
-	if third.SliderMin != "2" || third.SliderMax != "8" || third.SliderStep != "2" {
+	if third.SliderMin != float64(2) || third.SliderMax != float64(8) || third.SliderStep != float64(2) {
 		t.Fatalf("third = %#v", third)
 	}
 }
@@ -135,7 +135,7 @@ func TestParserPreservesScoreAndDoesNotGuessTextOrQuestionNumber(t *testing.T) {
 		t.Fatalf("questions = %#v", definition.Questions)
 	}
 	score := definition.Questions[0]
-	if score.ProviderType != "score" || !score.IsRating || score.RatingMax != 3 {
+	if score.ProviderType != "5" || !score.IsRating || score.RatingMax != 3 {
 		t.Fatalf("score = %#v", score)
 	}
 	text := definition.Questions[1]
@@ -143,7 +143,7 @@ func TestParserPreservesScoreAndDoesNotGuessTextOrQuestionNumber(t *testing.T) {
 		t.Fatalf("text fallback = %#v", text)
 	}
 	unknown := definition.Questions[2]
-	if !unknown.Unsupported || unknown.ProviderType != "" {
+	if !unknown.Unsupported || unknown.ProviderType != "99" {
 		t.Fatalf("unknown = %#v", unknown)
 	}
 }

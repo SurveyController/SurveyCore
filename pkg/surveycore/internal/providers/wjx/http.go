@@ -36,11 +36,15 @@ func (p Parser) getHTML(ctx context.Context, surveyURL string) (string, error) {
 }
 
 func fetchHTML(ctx context.Context, client httpDoer, surveyURL string, userAgent string) (string, error) {
+	return fetchHTMLWithReferer(ctx, client, surveyURL, surveyURL, userAgent)
+}
+
+func fetchHTMLWithReferer(ctx context.Context, client httpDoer, surveyURL, referer, userAgent string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, surveyURL, nil)
 	if err != nil {
 		return "", err
 	}
-	for key, value := range requestHeaders(surveyURL, userAgent) {
+	for key, value := range requestHeaders(referer, userAgent) {
 		req.Header.Set(key, value)
 	}
 	resp, err := client.Do(req)

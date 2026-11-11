@@ -39,13 +39,6 @@ func buildDefinition(rawQuestions []map[string]any, rawTitle string) (model.Surv
 	if err := rejectBlockedQuestions(normalized); err != nil {
 		return model.SurveyDefinition{}, err
 	}
-	questions := make([]model.QuestionMeta, 0, len(normalized))
-	for _, question := range normalized {
-		if question.IsDescription {
-			continue
-		}
-		questions = append(questions, question)
-	}
 	title := normalizeTitle(rawTitle)
 	if title == "" {
 		title = "腾讯问卷"
@@ -53,7 +46,7 @@ func buildDefinition(rawQuestions []map[string]any, rawTitle string) (model.Surv
 	return model.SurveyDefinition{
 		Provider:  model.ProviderQQ,
 		Title:     title,
-		Questions: questions,
+		Questions: normalized,
 	}, nil
 }
 
@@ -69,7 +62,8 @@ func standardizeQuestions(rawQuestions []map[string]any) []model.QuestionMeta {
 			result = append(result, question)
 			continue
 		}
-		question.Num = displayNum
+		number := displayNum
+		question.DisplayNum = &number
 		displayNum++
 		if len(pendingDescriptions) > 0 {
 			question = mergeDescriptions(question, pendingDescriptions)
@@ -115,6 +109,7 @@ func normalizeQuestion(raw map[string]any, fallbackNum int, pageMap map[string]i
 		ProviderID:        strings.TrimSpace(stringValue(raw["id"])),
 		ProviderPageID:    strings.TrimSpace(stringValue(raw["page_id"])),
 		ProviderType:      providerType,
+		ProviderPageRaw:   raw["page"],
 		Required:          boolValue(raw["required"]),
 		IsDescription:     isDescription,
 		IsRating:          providerType == "nps" || providerType == "star",
@@ -122,7 +117,7 @@ func normalizeQuestion(raw map[string]any, fallbackNum int, pageMap map[string]i
 		TextInputs:        textInputs(providerType),
 		IsTextLike:        providerType == "text" || providerType == "textarea",
 		IsMultiText:       false,
-		QuestionLogic:     model.QuestionLogic{LogicStatus: model.LogicParseStatusNone},
+		QuestionLogic:     model.QuestionLogic{LogicStatus: model.LogicParseStatusUnknown},
 		MultiMinLimit:     multiMin,
 		MultiMaxLimit:     multiMax,
 		ForcedTexts:       []string{},
@@ -154,6 +149,7 @@ func pageMapKey(question map[string]any) string {
 func mergeDescriptions(question model.QuestionMeta, descriptions []model.QuestionMeta) model.QuestionMeta {
 	var titles []string
 	var descriptionsText []string
+	var media []model.QuestionMedia
 	for _, description := range descriptions {
 		if description.Page != question.Page {
 			continue
@@ -164,6 +160,7 @@ func mergeDescriptions(question model.QuestionMeta, descriptions []model.Questio
 		if strings.TrimSpace(description.Description) != "" {
 			descriptionsText = append(descriptionsText, strings.TrimSpace(description.Description))
 		}
+		media = append(media, description.QuestionMedia...)
 	}
 	if len(titles) > 0 {
 		titles = append(titles, question.Title)
@@ -175,6 +172,20 @@ func mergeDescriptions(question model.QuestionMeta, descriptions []model.Questio
 		}
 		question.Description = strings.TrimSpace(strings.Join(descriptionsText, "\n"))
 	}
+	seen := map[string]bool{}
+	var merged []model.QuestionMedia
+	for _, item := range append(media, question.QuestionMedia...) {
+		index := -1
+		if item.Index != nil {
+			index = *item.Index
+		}
+		key := fmt.Sprintf("%s\x00%d\x00%s", item.Scope, index, item.SourceURL)
+		if !seen[key] {
+			merged = append(merged, item)
+			seen[key] = true
+		}
+	}
+	question.QuestionMedia = merged
 	return question
 }
 

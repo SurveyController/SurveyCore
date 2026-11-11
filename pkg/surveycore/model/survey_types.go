@@ -33,8 +33,10 @@ type SurveySource struct {
 }
 
 // SurveyDefinition is the provider-neutral survey snapshot returned by Parse.
+// SurveyURL is the normalized parse URL, named to preserve RunRequest.URL access.
 type SurveyDefinition struct {
 	Provider  string         `json:"provider"`
 	Title     string         `json:"title"`
+	SurveyURL string         `json:"url,omitempty"`
 	Questions []QuestionMeta `json:"questions"`
 }

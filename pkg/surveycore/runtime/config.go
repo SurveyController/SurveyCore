@@ -2,14 +2,13 @@ package runtime
 
 import (
 	"context"
-	"strings"
 
 	"github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 )
 
 func (c *Client) DefaultConfig(ctx context.Context, surveyURL string) (*RunRequest, error) {
 	cfg := newDefaultRunRequest()
-	cfg.SurveySource.URL = strings.TrimSpace(surveyURL)
+	cfg.SurveySource.URL = normalizeSurveyURL(surveyURL)
 	if cfg.SurveySource.URL == "" {
 		return &cfg, nil
 	}

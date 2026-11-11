@@ -3,6 +3,9 @@ package defaults
 import "github.com/SurveyController/SurveyCore/pkg/surveycore/model"
 
 func QuestionType(question model.QuestionMeta) string {
+	if question.IsSliderMatrix {
+		return "matrix"
+	}
 	switch question.ProviderType {
 	case "single", "multiple", "dropdown", "scale", "score", "matrix", "order", "slider", "text":
 		return question.ProviderType

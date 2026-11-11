@@ -113,7 +113,11 @@ func BuildActionWithOptions(question model.QuestionMeta, entry model.QuestionStr
 		}
 	case "slider":
 		action.Kind = kind
-		action.SliderValue = firstNonEmpty(firstProbabilityText(entry.Probabilities), question.SliderMin, defaultSliderValue)
+		minimum := ""
+		if question.SliderMin != nil {
+			minimum = fmt.Sprint(question.SliderMin)
+		}
+		action.SliderValue = firstNonEmpty(firstProbabilityText(entry.Probabilities), minimum, defaultSliderValue)
 	case "text":
 		action.Kind = "text"
 		count := maxInt(1, question.TextInputs)
@@ -135,7 +139,13 @@ func BuildActionWithOptions(question model.QuestionMeta, entry model.QuestionStr
 func normalizeKind(question model.QuestionMeta, entry model.QuestionStrategy) string {
 	kind := strings.TrimSpace(string(entry.QuestionType))
 	if kind == "" {
+		if question.IsSliderMatrix {
+			return "matrix"
+		}
 		kind = strings.TrimSpace(question.ProviderType)
+		if kind == question.TypeCode || kind == "multilevel_dropdown" {
+			kind = ""
+		}
 	}
 	switch kind {
 	case "single", "multiple", "dropdown", "scale", "score", "matrix", "order", "slider", "text", "multi_text":

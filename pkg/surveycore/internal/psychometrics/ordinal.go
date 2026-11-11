@@ -70,7 +70,13 @@ func numericOrdinalMapping(texts []string) ([]int, bool) {
 func normalizeKind(question model.QuestionMeta, entry model.QuestionStrategy) string {
 	kind := strings.TrimSpace(string(entry.QuestionType))
 	if kind == "" {
+		if question.IsSliderMatrix {
+			return "matrix"
+		}
 		kind = strings.TrimSpace(question.ProviderType)
+		if kind == question.TypeCode || kind == "multilevel_dropdown" {
+			kind = ""
+		}
 	}
 	switch kind {
 	case "single", "multiple", "dropdown", "scale", "matrix", "order", "slider", "text", "score":

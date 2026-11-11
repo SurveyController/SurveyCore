@@ -129,6 +129,8 @@ api_key = ""
 
 批量运行可用 `for result, err := range client.RunResults(ctx, cfg)` 按完成顺序读取结果，`attempt` 从 1 开始。目标数表示尝试次数；每次失败保留结果并继续后续尝试，不自动重试。除第一次外，每次尝试开始前都会等待配置中的随机提交间隔。原生 Go 配置显式启用 `failStop` 时仍会在连续失败达到阈值后停止。HTTP 任务用 `GET /api/v1/tasks/{id}/results?after=0&limit=200` 读取同样的逐次结果。
 
+解析结果包含规范化的 `url`，支持省略 `https://` 的问卷链接，并将见数短链接转换为 `answer.html#/s/...`。题目保留原始题型、分页信息及显示题号；Python 的 `dataclasses.asdict(survey)` 可直接作为单次提交的 `survey` 快照。问卷星多级下拉会读取完整层级选项，并保留实际提交值。具体字段及兼容说明见 [数据结构](docs/sdk/schemas.md#surveydefinition)。
+
 ## 错误响应
 
 请求级错误统一返回稳定错误码、用户消息和调试详情：

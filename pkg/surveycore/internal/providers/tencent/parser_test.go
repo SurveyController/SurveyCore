@@ -26,7 +26,7 @@ func TestParserParsesTencentQuestions(t *testing.T) {
 	if definition.Provider != model.ProviderQQ || definition.Title != "消费问卷" {
 		t.Fatalf("definition = %#v", definition)
 	}
-	if len(definition.Questions) != 4 {
+	if len(definition.Questions) != 5 {
 		t.Fatalf("question count = %d", len(definition.Questions))
 	}
 	first := definition.Questions[0]
@@ -43,7 +43,7 @@ func TestParserParsesTencentQuestions(t *testing.T) {
 	if len(second.QuestionMedia) == 0 {
 		t.Fatalf("media = %#v", second.QuestionMedia)
 	}
-	matrix := definition.Questions[3]
+	matrix := definition.Questions[4]
 	if matrix.Title != "说明文字 请评分" || matrix.Description != "请认真阅读" {
 		t.Fatalf("merged matrix = %#v", matrix)
 	}

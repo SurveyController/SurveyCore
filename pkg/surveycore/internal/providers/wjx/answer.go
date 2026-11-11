@@ -40,7 +40,7 @@ func cloneOptionFills(src map[int]string) map[int]string {
 	return dst
 }
 
-func buildSubmitData(questions []model.QuestionMeta, planned []model.AnswerAction) (string, error) {
+func buildSubmitData(questions []model.QuestionMeta, planned []model.AnswerAction, emptyNumbers ...int) (string, error) {
 	actions := make(map[int]answerAction, len(planned))
 	for _, action := range planned {
 		wjxAction := toWJXAction(action)
@@ -75,16 +75,35 @@ func buildSubmitData(questions []model.QuestionMeta, planned []model.AnswerActio
 			orderedNums = append(orderedNums, questionNum)
 		}
 	}
+	empty := make(map[int]bool, len(emptyNumbers))
+	for _, number := range emptyNumbers {
+		if number <= 0 {
+			continue
+		}
+		empty[number] = true
+		if _, exists := seen[number]; !exists {
+			seen[number] = struct{}{}
+			orderedNums = append(orderedNums, number)
+		}
+	}
 	sort.Ints(orderedNums)
 	parts := make([]string, 0, len(orderedNums))
 	for _, questionNum := range orderedNums {
 		var answer string
 		if action, ok := actions[questionNum]; ok {
+			if question := questionByNum[questionNum]; question.ProviderType == multilevelDropdown {
+				value, err := multilevelAnswer(question, action.Indices)
+				if err != nil {
+					return "", err
+				}
+				action.Kind = "text"
+				action.Texts = []string{value}
+			}
 			answer = actionAnswer(action)
 			if answer == "" {
 				return "", fmt.Errorf("第%d题没有生成可提交答案", questionNum)
 			}
-		} else {
+		} else if !empty[questionNum] {
 			question, ok := questionByNum[questionNum]
 			if !ok {
 				continue

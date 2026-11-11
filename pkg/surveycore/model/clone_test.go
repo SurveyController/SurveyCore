@@ -15,6 +15,7 @@ func TestCloneRunModelsDoNotShareMutableState(t *testing.T) {
 		},
 		AttachedOptionSelects: []AttachedOptionSelect{{SelectTexts: []string{"X"}}},
 		ForcedOptionIdx:       &row,
+		ProviderPageRaw:       map[string]any{"submit_values": []string{"parent‐child"}, "nested": []any{map[string]any{"id": "original"}}},
 	}}}
 	plan := AnswerPlan{
 		Rules: []ConsistencyRule{{ConditionOptionIndices: []int{1}, TargetOptionIndices: []int{0}, ConditionRowIndex: &row}},
@@ -34,6 +35,9 @@ func TestCloneRunModelsDoNotShareMutableState(t *testing.T) {
 	clonedDefinition.Questions[0].DisplayConditions[0].OptionIndices[0] = 9
 	*clonedDefinition.Questions[0].ForcedOptionIdx = 9
 	clonedDefinition.Questions[0].AttachedOptionSelects[0].SelectTexts[0] = "changed"
+	metadata := clonedDefinition.Questions[0].ProviderPageRaw.(map[string]any)
+	metadata["submit_values"].([]string)[0] = "changed"
+	metadata["nested"].([]any)[0].(map[string]any)["id"] = "changed"
 	clonedPlan.Rules[0].ConditionOptionIndices[0] = 9
 	*clonedPlan.Rules[0].ConditionRowIndex = 9
 	clonedPlan.Strategies[0].Probabilities.Rows[0][0] = 1
@@ -47,6 +51,10 @@ func TestCloneRunModelsDoNotShareMutableState(t *testing.T) {
 	}
 	if definition.Questions[0].AttachedOptionSelects[0].SelectTexts[0] != "X" {
 		t.Fatalf("definition nested slice mutated: %#v", definition)
+	}
+	originalMetadata := definition.Questions[0].ProviderPageRaw.(map[string]any)
+	if originalMetadata["submit_values"].([]string)[0] != "parent‐child" || originalMetadata["nested"].([]any)[0].(map[string]any)["id"] != "original" {
+		t.Fatalf("provider metadata shares mutable state: %#v", originalMetadata)
 	}
 	strategy := plan.Strategies[0]
 	if plan.Rules[0].ConditionOptionIndices[0] != 1 || *plan.Rules[0].ConditionRowIndex != 1 || strategy.Probabilities.Rows[0][0] != 0.4 {

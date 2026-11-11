@@ -45,6 +45,7 @@ func (c *Client) RunWithExecutionOptions(ctx context.Context, cfg *RunRequest, h
 		return nil, err
 	}
 	runCfg.SurveySource.Provider = provider
+	runCfg.SurveySource.URL = normalizeSurveyURL(runCfg.SurveySource.URL)
 	if err := prepareAnswerDatetimeWindowExecution(runCfg, provider); err != nil {
 		return nil, err
 	}

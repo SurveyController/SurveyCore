@@ -48,6 +48,19 @@ func TestPublicPackagesCompileForExternalConsumer(t *testing.T) {
 		t.Fatalf("Python concurrency = %d", imported.ExecutionPlan.Threads)
 	}
 	var submission *surveycore.SubmissionResult
+	snapshot := model.SurveyDefinition{SurveyURL: "https://www.wjx.cn/vm/demo.aspx", Questions: []model.QuestionMeta{{
+		SliderRange:     model.SliderRange{SliderMin: 0.5, SliderMax: "10", SliderStep: nil},
+		ProviderPageRaw: map[string]any{"submit_values": []string{"parent‐child"}},
+	}}}
+	cloned := model.CloneSurveyDefinition(snapshot)
+	if cloned.SurveyURL != snapshot.SurveyURL || cloned.Questions[0].SliderMin != 0.5 {
+		t.Fatal("parse snapshot metadata is unavailable to external consumers")
+	}
+	// The new snapshot URL must not shadow the existing promoted run source URL.
+	request := model.RunRequest{SurveySource: model.SurveySource{URL: snapshot.SurveyURL}}
+	if request.URL != snapshot.SurveyURL {
+		t.Fatal("run source URL compatibility was lost")
+	}
 	submission, err = client.Submit(context.Background(), &surveycore.SubmissionRequest{})
 	if submission != nil || !errors.Is(err, surveycore.ErrInvalidConfig) || surveycore.ClassifySubmissionError(err) != surveycore.ErrorKindConfig {
 		t.Fatalf("single submission contract: result=%#v error=%v", submission, err)

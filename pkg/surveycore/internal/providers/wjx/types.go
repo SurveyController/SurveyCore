@@ -26,8 +26,9 @@ type Runner struct {
 }
 
 type PreparedSurvey struct {
-	Definition model.SurveyDefinition
-	SceneID    string
+	Definition           model.SurveyDefinition
+	SceneID              string
+	EmptyQuestionNumbers []int
 }
 
 type Event struct {
