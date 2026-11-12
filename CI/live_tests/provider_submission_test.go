@@ -25,26 +25,16 @@ func TestLiveProviderParse(t *testing.T) {
 		t.Skip("set SURVEYCORE_LIVE_PARSE=1 to enable live parser checks")
 	}
 	for _, survey := range []struct {
-		provider   string
-		url        string
-		parseError string
+		provider string
+		url      string
 	}{
-		{model.ProviderWJX, "https://v.wjx.cn/vm/ei3sVrE.aspx", ""},
-		// This published fixture includes rating types the parser explicitly rejects.
-		{model.ProviderQQ, "https://wj.qq.com/s2/26070328/fa89/", "腾讯问卷当前版本暂不支持量表、矩阵量表题"},
-		{model.ProviderCredamo, "https://www.credamo.com/s/A73QR3ano", ""},
+		{model.ProviderWJX, "https://v.wjx.cn/vm/ei3sVrE.aspx"},
+		{model.ProviderQQ, "https://wj.qq.com/s2/26070328/fa89/"},
+		{model.ProviderCredamo, "https://www.credamo.com/s/A73QR3ano"},
 	} {
 		t.Run(survey.provider, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
-			if survey.parseError != "" {
-				_, err := surveycore.New().Parse(ctx, survey.url)
-				if !errors.Is(err, surveycore.ErrParseFailed) || !strings.Contains(err.Error(), survey.parseError) {
-					t.Fatalf("expected the fixture's unsupported-type error, got %v", err)
-				}
-				t.Log("live questions fetched; unsupported rating types correctly reported")
-				return
-			}
 			config := defaultConfigWithRetry(t, ctx, surveycore.New(), survey.url)
 			if config.SurveySource.Provider != survey.provider || config.SurveyDefinition.Provider != survey.provider {
 				t.Fatalf("provider mismatch: source=%q definition=%q", config.SurveySource.Provider, config.SurveyDefinition.Provider)

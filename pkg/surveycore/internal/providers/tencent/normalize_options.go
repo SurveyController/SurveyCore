@@ -8,20 +8,9 @@ import (
 func buildOptionTexts(question map[string]any, providerType string) []string {
 	switch providerType {
 	case "nps", "star":
-		start := intValue(question["star_begin_num"])
-		count := maxInt(0, intValue(question["star_num"]))
-		values := make([]string, 0, count)
-		for i := 0; i < count; i++ {
-			values = append(values, fmt.Sprintf("%d", start+i))
-		}
-		return values
+		return ratingOptionTexts(question, providerType)
 	case "matrix_star":
-		count := maxInt(0, intValue(question["star_num"]))
-		values := make([]string, 0, count)
-		for i := 0; i < count; i++ {
-			values = append(values, fmt.Sprintf("%d", i+1))
-		}
-		return values
+		return ratingOptionTexts(question, providerType)
 	default:
 		options := asMapList(question["options"])
 		values := make([]string, 0, len(options))
@@ -30,6 +19,22 @@ func buildOptionTexts(question map[string]any, providerType string) []string {
 		}
 		return cleanTextList(values)
 	}
+}
+
+func ratingOptionTexts(question map[string]any, providerType string) []string {
+	start := 1
+	if providerType == "nps" {
+		start = 0
+	}
+	if question["star_begin_num"] != nil {
+		start = intValue(question["star_begin_num"])
+	}
+	count := maxInt(0, intValue(question["star_num"]))
+	values := make([]string, 0, count)
+	for index := 0; index < count; index++ {
+		values = append(values, fmt.Sprintf("%d", start+index))
+	}
+	return values
 }
 
 func buildRowTexts(question map[string]any) []string {
@@ -123,9 +128,6 @@ func textInputs(providerType string) int {
 }
 
 func unsupportedReason(providerType string) string {
-	if label := blockedRuntimeProviderTypes[providerType]; label != "" {
-		return "当前版本暂不支持腾讯问卷" + label + "题"
-	}
 	if supportedProviderTypes[providerType] || providerType == "description" {
 		return ""
 	}

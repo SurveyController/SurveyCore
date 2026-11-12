@@ -16,9 +16,6 @@ func buildSubmitBody(request *model.SubmissionRequest, surveyID string, hashValu
 		if question.IsDescription {
 			continue
 		}
-		if label := blockedRuntimeProviderTypes[question.ProviderType]; label != "" {
-			return nil, runerror.Wrap(runerror.KindUnsupported, fmt.Errorf("腾讯问卷第%d题暂不支持：%s", question.Num, label))
-		}
 		if !supportedProviderTypes[question.ProviderType] {
 			return nil, runerror.Wrap(runerror.KindUnsupported, fmt.Errorf("腾讯问卷第%d题暂不支持：%s", question.Num, firstString(question.ProviderType, question.TypeCode, "unknown")))
 		}
@@ -107,6 +104,10 @@ func questionAnswer(raw map[string]any, action model.AnswerAction) (any, error) 
 		}, nil
 	case "matrix_radio":
 		return matrixAnswer(raw, action)
+	case "nps", "star":
+		return ratingAnswer(raw, action)
+	case "matrix_star":
+		return matrixRatingAnswer(raw, action)
 	default:
 		return choiceAnswer(raw, action)
 	}

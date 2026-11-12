@@ -99,13 +99,17 @@ func TestTencentAttachLogicMetadata(t *testing.T) {
 	}
 }
 
-func TestParserRejectsBlockedTencentRating(t *testing.T) {
+func TestParserAcceptsTencentRating(t *testing.T) {
 	server := newTencentTestServer(t, true)
 	parser := Parser{HTTP: rewriteClient(server.URL)}
 
-	_, err := parser.Parse(context.Background(), "https://wj.qq.com/s2/123/hashvalue/")
-	if err == nil || !strings.Contains(err.Error(), "请改用 v3.2.2 旧版本") {
-		t.Fatalf("error = %v", err)
+	definition, err := parser.Parse(context.Background(), "https://wj.qq.com/s2/123/hashvalue/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rating := definition.Questions[len(definition.Questions)-1]
+	if rating.Unsupported || rating.TypeCode != "5" || !rating.IsRating || rating.Options != 5 || rating.OptionTexts[0] != "1" {
+		t.Fatalf("rating = %#v", rating)
 	}
 }
 
@@ -174,7 +178,7 @@ func (c rewriteClient) DoJSON(ctx context.Context, method string, rawURL string,
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func newTencentTestServer(t *testing.T, blocked bool) *httptest.Server {
+func newTencentTestServer(t *testing.T, includeRating bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -184,7 +188,7 @@ func newTencentTestServer(t *testing.T, blocked bool) *httptest.Server {
 			writeTencentJSON(t, w, map[string]any{"code": "OK", "data": map[string]any{"title": "消费问卷 - 腾讯问卷"}})
 		case "/api/v2/respondent/surveys/123/questions":
 			questions := loadTencentQuestionsFixture(t)
-			if blocked {
+			if includeRating {
 				questions = append(questions, map[string]any{"id": "q6", "type": "star", "title": "评分", "star_begin_num": 1, "star_num": 5, "page_id": "p3", "page": 3})
 			}
 			writeTencentJSON(t, w, map[string]any{"code": "OK", "data": map[string]any{"questions": questions}})
