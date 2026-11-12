@@ -25,18 +25,15 @@ var supportedProviderTypes = map[string]bool{
 	"select":       true,
 	"text":         true,
 	"textarea":     true,
+	"nps":          true,
+	"star":         true,
 	"matrix_radio": true,
-}
-
-var blockedRuntimeProviderTypes = map[string]string{
-	"nps":         "量表",
-	"star":        "量表",
-	"matrix_star": "矩阵量表",
+	"matrix_star":  true,
 }
 
 func buildDefinition(rawQuestions []map[string]any, rawTitle string) (model.SurveyDefinition, error) {
 	normalized := standardizeQuestions(rawQuestions)
-	if err := rejectBlockedQuestions(normalized); err != nil {
+	if err := rejectUnsupportedQuestions(normalized); err != nil {
 		return model.SurveyDefinition{}, err
 	}
 	title := normalizeTitle(rawTitle)
@@ -197,27 +194,18 @@ func normalizeTitle(raw string) string {
 	return strings.TrimSpace(strings.Trim(title, " -_|｜"))
 }
 
-func rejectBlockedQuestions(questions []model.QuestionMeta) error {
-	var blocked []string
+func rejectUnsupportedQuestions(questions []model.QuestionMeta) error {
 	var unsupported []string
 	for _, question := range questions {
 		if question.IsDescription {
-			continue
-		}
-		label := blockedRuntimeProviderTypes[question.ProviderType]
-		if label != "" {
-			blocked = append(blocked, fmt.Sprintf("第 %d 题：%s（%s）", question.Num, question.Title, label))
 			continue
 		}
 		if question.Unsupported {
 			unsupported = append(unsupported, fmt.Sprintf("第 %d 题：%s（%s）", question.Num, question.Title, firstString(question.UnsupportedReason, question.ProviderType, question.TypeCode, "unknown")))
 		}
 	}
-	if len(blocked) == 0 && len(unsupported) == 0 {
+	if len(unsupported) == 0 {
 		return nil
-	}
-	if len(blocked) > 0 {
-		return ParseError{Message: "腾讯问卷当前版本暂不支持量表、矩阵量表题，请改用 v3.2.2 旧版本：\n" + strings.Join(blocked, "\n")}
 	}
 	return ParseError{Message: "腾讯问卷包含当前版本不支持的题型：\n" + strings.Join(unsupported, "\n")}
 }

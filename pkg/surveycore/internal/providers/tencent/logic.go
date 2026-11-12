@@ -96,7 +96,7 @@ func attachLogicMetadata(rawQuestions []map[string]any, questions []model.Questi
 		if !ok {
 			continue
 		}
-		if raw["hidden"] != nil && raw["hidden"] != "" {
+		if hasHiddenLogic(raw["hidden"]) {
 			questions[idx].HasDisplayCondition = true
 			if questions[idx].LogicStatus != model.LogicParseStatusComplete {
 				questions[idx].LogicStatus = model.LogicParseStatusUnknown
@@ -104,6 +104,23 @@ func attachLogicMetadata(rawQuestions []map[string]any, questions []model.Questi
 		}
 	}
 	return questions
+}
+
+func hasHiddenLogic(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return value
+	case string:
+		return strings.TrimSpace(value) != ""
+	case []any:
+		return len(value) > 0
+	case map[string]any:
+		return len(value) > 0
+	default:
+		return boolValue(value)
+	}
 }
 
 func byIDNum(questions []model.QuestionMeta) map[string]int {
